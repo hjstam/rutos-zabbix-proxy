@@ -1,0 +1,187 @@
+---
+name: Build Zabbix Proxy (SQLite3) for RUTM30
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/build-zabbix-proxy.yml
+      - zabbix_proxy.init
+
+jobs:
+  build:
+    name: Build zabbix-proxy-openssl (mipsel_24kc)
+    runs-on: ubuntu-24.04
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Checkout repo so we can access the init script
+      # -----------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      # -----------------------------------------------------------------------
+      # 2. Install build dependencies
+      # -----------------------------------------------------------------------
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential file gawk gettext git \
+            libncurses5-dev libssl-dev python3 rsync unzip wget zlib1g-dev
+
+      # -----------------------------------------------------------------------
+      # 3. Download the OpenWrt 21.02.7 SDK for ramips/mt7621
+      #    (same GCC 8.4.0 + musl toolchain as RutOS 7.x, pre-built)
+      # -----------------------------------------------------------------------
+      - name: Download OpenWrt SDK
+        run: |
+          wget -q https://downloads.openwrt.org/releases/21.02.7/targets/ramips/mt7621/openwrt-sdk-21.02.7-ramips-mt7621_gcc-8.4.0_musl.Linux-x86_64.tar.xz
+          tar -xf openwrt-sdk-21.02.7-ramips-mt7621_gcc-8.4.0_musl.Linux-x86_64.tar.xz
+          mv openwrt-sdk-21.02.7-ramips-mt7621_gcc-8.4.0_musl.Linux-x86_64 openwrt-sdk
+
+      # -----------------------------------------------------------------------
+      # 4. Update and install feeds
+      # -----------------------------------------------------------------------
+      - name: Update feeds
+        working-directory: openwrt-sdk
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install zabbix
+
+      # -----------------------------------------------------------------------
+      # 5. Patch Zabbix Makefile for SQLite3 support
+      # -----------------------------------------------------------------------
+      - name: Patch Zabbix Makefile for SQLite3 support
+        working-directory: openwrt-sdk
+        run: |
+          MAKEFILE="feeds/packages/admin/zabbix/Makefile"
+
+          sed -i 's/--with-pgsql/--with-sqlite3=$(STAGING_DIR)\/usr/g' "$MAKEFILE"
+          sed -i 's/+libpq/+libsqlite3-0/g' "$MAKEFILE"
+
+          echo "=== Patched Makefile (db section) ==="
+          grep -A2 -B2 "sqlite\|pgsql" "$MAKEFILE" || true
+
+      # -----------------------------------------------------------------------
+      # 6. Add init.d script to the Zabbix package
+      # -----------------------------------------------------------------------
+      - name: Add init.d script to package
+        working-directory: openwrt-sdk
+        run: |
+          ZABBIX_DIR="feeds/packages/admin/zabbix"
+          FILES_DIR="$ZABBIX_DIR/files"
+          MAKEFILE="$ZABBIX_DIR/Makefile"
+
+          mkdir -p "$FILES_DIR"
+          cp "$GITHUB_WORKSPACE/zabbix_proxy.init" "$FILES_DIR/zabbix_proxy.init"
+
+          python3 << 'PYEOF'
+          import re
+
+          with open('feeds/packages/admin/zabbix/Makefile', 'r') as f:
+              content = f.read()
+
+          init_lines = (
+              '\n\t$(INSTALL_DIR) $(1)/etc/init.d\n'
+              '\t$(INSTALL_BIN) ./files/zabbix_proxy.init $(1)/etc/init.d/zabbix_proxy\n'
+          )
+
+          if 'zabbix_proxy.init' not in content:
+              content = re.sub(
+                  r'(define Package/zabbix-proxy/install.*?)(endef)',
+                  lambda m: m.group(1) + init_lines + m.group(2),
+                  content,
+                  flags=re.DOTALL
+              )
+              print("Patched: init script added to install section")
+          else:
+              print("Init script already in Makefile, skipping patch")
+
+          with open('feeds/packages/admin/zabbix/Makefile', 'w') as f:
+              f.write(content)
+          PYEOF
+
+          echo "=== Final install section ==="
+          grep -A15 "Package/zabbix-proxy/install" "$MAKEFILE" || true
+
+      # -----------------------------------------------------------------------
+      # 7. Configure the build
+      # -----------------------------------------------------------------------
+      - name: Configure build
+        working-directory: openwrt-sdk
+        run: |
+          echo 'CONFIG_PACKAGE_zabbix-proxy-openssl=m' > .config
+          make defconfig
+          echo "=== Zabbix config ==="
+          grep -i zabbix .config || true
+
+      # -----------------------------------------------------------------------
+      # 8. Build the package
+      # -----------------------------------------------------------------------
+      - name: Build zabbix-proxy-openssl
+        working-directory: openwrt-sdk
+        run: |
+          make package/feeds/packages/zabbix/compile V=s -j$(nproc) 2>&1 | tee build.log
+          echo "=== Build complete ==="
+
+      # -----------------------------------------------------------------------
+      # 9. Verify output — check init script and SQLite are in the .ipk
+      # -----------------------------------------------------------------------
+      - name: Verify compiled package
+        working-directory: openwrt-sdk
+        run: |
+          echo "=== Zabbix .ipk files ==="
+          find bin/ -name "zabbix*.ipk" | sort
+
+          IPK=$(find bin/ -name "zabbix-proxy*.ipk" | head -1)
+          if [ -z "$IPK" ]; then
+            echo "ERROR: No zabbix-proxy .ipk found"
+            exit 1
+          fi
+
+          echo "=== Inspecting: $IPK ==="
+          mkdir -p /tmp/ipk-check
+          cp "$IPK" /tmp/ipk-check/pkg.ipk
+          cd /tmp/ipk-check
+          ar x pkg.ipk 2>/dev/null || tar -xzf pkg.ipk
+          tar -xzf data.tar.gz 2>/dev/null || true
+
+          echo "--- Package contents ---"
+          find . -not -path "./pkg.ipk" \
+                 -not -name "control.tar.gz" \
+                 -not -name "data.tar.gz" \
+                 -not -name "debian-binary" | sort
+
+          echo "--- init.d script ---"
+          cat ./etc/init.d/zabbix_proxy 2>/dev/null \
+            && echo "init script confirmed in package" \
+            || echo "WARNING: init script not found"
+
+          echo "--- SQLite linkage ---"
+          BINARY=$(find . -name "zabbix_proxy" -not -path "*/init.d/*" | head -1)
+          if [ -n "$BINARY" ]; then
+            strings "$BINARY" | grep -i sqlite \
+              && echo "SQLite3 confirmed" \
+              || echo "WARNING: sqlite not found in binary"
+          fi
+
+      # -----------------------------------------------------------------------
+      # 10. Upload artifacts
+      # -----------------------------------------------------------------------
+      - name: Upload packages as artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: zabbix-proxy-sqlite3-mipsel_24kc
+          path: openwrt-sdk/bin/packages/mipsel_24kc/
+          retention-days: 30
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: build-log
+          path: openwrt-sdk/build.log
+          retention-days: 7
