@@ -4,7 +4,7 @@ START=99
 STOP=10
 USE_PROCD=1
 
-PROG=/usr/sbin/zabbix_proxy
+PROG=/usr/local/usr/sbin/zabbix_proxy
 CONFIG=/etc/zabbix_proxy.conf
 PIDFILE=/var/run/zabbix_proxy.pid
 
