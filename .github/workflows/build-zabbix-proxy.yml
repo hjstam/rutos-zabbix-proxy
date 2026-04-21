@@ -175,7 +175,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: zabbix-proxy-sqlite3-mipsel_24kc
-          path: openwrt-sdk/bin/packages/mipsel_24kc/
+          path: openwrt-sdk/bin/packages/mipsel_24kc/packages/zabbix-proxy-*.ipk
           retention-days: 30
 
       - name: Upload build logs
