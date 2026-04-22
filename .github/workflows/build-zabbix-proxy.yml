@@ -3,6 +3,11 @@ name: Build Zabbix Proxy (SQLite3) for RUTM30
 
 on:
   workflow_dispatch:
+    inputs:
+      zabbix_version:
+        description: 'Zabbix version to build (leave empty for Makefile default)'
+        required: false
+        default: ''
   push:
     branches:
       - main
@@ -44,8 +49,6 @@ jobs:
 
       # -----------------------------------------------------------------------
       # 4. Update and install feeds
-      #    Install both zabbix and libsqlite3-0 so the SDK knows how to build
-      #    sqlite3 as a zabbix-proxy dependency.
       # -----------------------------------------------------------------------
       - name: Update feeds
         working-directory: openwrt-sdk
@@ -55,42 +58,28 @@ jobs:
           ./scripts/feeds install zabbix
 
       # -----------------------------------------------------------------------
-      # 5. Patch Zabbix Makefile for SQLite3 support
+      # 5. Replace 21.02 Makefile with master branch version
+      #    which has proper native SQLite3 support (merged via PR #19605)
       # -----------------------------------------------------------------------
-      - name: Patch Zabbix Makefile for SQLite3 support
+      - name: Replace Zabbix Makefile with master branch version
         working-directory: openwrt-sdk
         run: |
-          MAKEFILE="feeds/packages/admin/zabbix/Makefile"
+          wget -q \
+            "https://raw.githubusercontent.com/openwrt/packages/master/admin/zabbix/Makefile" \
+            -O feeds/packages/admin/zabbix/Makefile
 
-          echo "=== Before patch (db/variant section) ==="
-          grep -n "postgresql\|pgsql\|sqlite\|libpq\|VARIANT\|DEFAULT_VARIANT" "$MAKEFILE" || true
-
-          # Replace the PostgreSQL conditional configure flag with unconditional sqlite3
-          sed -i 's|$(if $(CONFIG_ZABBIX_POSTGRESQL),--with-postgresql)|--with-sqlite3=$(STAGING_DIR)/usr|g' "$MAKEFILE"
-          # Replace conditional libpq dependency with unconditional libsqlite3-0
-          sed -i 's/+ZABBIX_POSTGRESQL:libpq[^ ]*/+libsqlite3-0/g' "$MAKEFILE"
-          # SQLite3 is only supported by the proxy, not the server; disable server
-          sed -i 's/--enable-server/--disable-server/g' "$MAKEFILE"
-          # Remove DEFAULT_VARIANT from all nossl packages so defconfig doesn't
-          # auto-enable them alongside the openssl variant we explicitly select.
-          sed -i '/VARIANT:=nossl/{n; /DEFAULT_VARIANT:=1/d}' "$MAKEFILE"
-
-          echo "=== After patch (db/variant section) ==="
-          grep -n "postgresql\|pgsql\|sqlite\|libpq\|VARIANT\|DEFAULT_VARIANT" "$MAKEFILE" || true
-
-          # Validate patches applied
-          if grep -q -- "--with-postgresql" "$MAKEFILE"; then
-            echo "ERROR: --with-postgresql still present after patch"
-            exit 1
+          if [ -n "${{ inputs.zabbix_version }}" ]; then
+            sed -i "s/PKG_VERSION:=.*/PKG_VERSION:=${{ inputs.zabbix_version }}/" feeds/packages/admin/zabbix/Makefile
+            sed -i "s/PKG_HASH:=.*/PKG_HASH:=skip/" feeds/packages/admin/zabbix/Makefile
+            echo "Overriding Zabbix version to ${{ inputs.zabbix_version }}"
           fi
-          if grep -q -- "--enable-server" "$MAKEFILE"; then
-            echo "ERROR: --enable-server still present after patch"
-            exit 1
-          fi
-          if grep -q -- "DEFAULT_VARIANT" "$MAKEFILE"; then
-            echo "ERROR: DEFAULT_VARIANT still present — nossl variants may auto-enable"
-            exit 1
-          fi
+
+          grep -i "ZABBIX_SQLITE\|sqlite3\|sqlite" feeds/packages/admin/zabbix/Makefile \
+            && echo "SQLite3 support confirmed in Makefile" \
+            || { echo "ERROR: SQLite3 not found in Makefile"; exit 1; }
+
+          echo "=== Database options in Makefile ==="
+          grep -A3 "Select Database" feeds/packages/admin/zabbix/Makefile || true
 
       # -----------------------------------------------------------------------
       # 6. Add init.d script to the Zabbix package
@@ -153,10 +142,12 @@ jobs:
       - name: Configure build
         working-directory: openwrt-sdk
         run: |
-          # Enable only the openssl proxy variant; suppress server and nossl variants
-          # which would conflict or fail (server needs postgresql, nossl has no db).
           printf '%s\n' \
             'CONFIG_PACKAGE_zabbix-proxy-openssl=m' \
+            'CONFIG_ZABBIX_SQLITE=y' \
+            'CONFIG_PACKAGE_libsqlite3-0=y' \
+            'CONFIG_PACKAGE_libpcre=y' \
+            'CONFIG_PACKAGE_zlib=y' \
             '# CONFIG_PACKAGE_zabbix-proxy is not set' \
             '# CONFIG_PACKAGE_zabbix-server is not set' \
             '# CONFIG_PACKAGE_zabbix-server-openssl is not set' \
