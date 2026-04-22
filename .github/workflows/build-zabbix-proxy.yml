@@ -62,8 +62,8 @@ jobs:
           echo "=== Before patch (db section) ==="
           grep -n "postgresql\|pgsql\|sqlite\|libpq" "$MAKEFILE" || true
 
-          # Match --with-postgresql[=DIR] (the actual Zabbix configure flag)
-          sed -i 's/--with-postgresql[^ ]*/--with-sqlite3=$(STAGING_DIR)\/usr/g' "$MAKEFILE"
+          # Match --with-postgresql[=DIR]; exclude ) and \ so we don't eat make function closers
+          sed -i 's/--with-postgresql[^ )\\]*/--with-sqlite3=$(STAGING_DIR)\/usr/g' "$MAKEFILE"
           # Match libpq with optional version suffix (e.g. libpq5)
           sed -i 's/+libpq[0-9]*/+libsqlite3-0/g' "$MAKEFILE"
 
