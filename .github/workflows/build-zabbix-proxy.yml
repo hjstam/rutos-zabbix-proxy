@@ -54,8 +54,8 @@ jobs:
         working-directory: openwrt-sdk
         run: |
           ./scripts/feeds update -a
-          ./scripts/feeds install libsqlite3-0
-          ./scripts/feeds install libnetsnmp-ssl
+          ./scripts/feeds install libsqlite3
+          ./scripts/feeds install libnetsnmp
           ./scripts/feeds install zabbix
 
       # -----------------------------------------------------------------------
@@ -93,7 +93,7 @@ jobs:
           sed -i 's/--with-libevent/--with-net-snmp="$(STAGING_DIR)\/usr" \\\n\t--with-libevent/' "$MAKEFILE"
 
           # Replace proxy DB dependencies with SQLite3 + SNMP libs
-          sed -i 's/+ZABBIX_POSTGRESQL:libpq +ZABBIX_MYSQL:libmariadbclient/+libsqlite3-0 +libnetsnmp-ssl/g' "$MAKEFILE"
+          sed -i 's/+ZABBIX_POSTGRESQL:libpq +ZABBIX_MYSQL:libmariadbclient/+libsqlite3 +libnetsnmp/g' "$MAKEFILE"
 
           # Remove DEFAULT_VARIANT from nossl variants so defconfig doesn't
           # auto-enable them alongside the openssl variant we explicitly select
@@ -169,9 +169,9 @@ jobs:
             || { echo "ERROR: sqlite3.h not found in staging_dir"; exit 1; }
 
           make package/feeds/packages/net-snmp/compile V=s 2>&1 | tee netsnmp.log
-          find staging_dir -name "net-snmp-config" 2>/dev/null | head -5 \
-            && echo "net-snmp found in staging_dir" \
-            || { echo "ERROR: net-snmp not found in staging_dir"; exit 1; }
+          find staging_dir -name "libnetsnmp.so*" 2>/dev/null | head -5 \
+            && echo "libnetsnmp found in staging_dir" \
+            || { echo "ERROR: libnetsnmp not found in staging_dir"; exit 1; }
 
       # -----------------------------------------------------------------------
       # 8. Configure the build
@@ -181,8 +181,8 @@ jobs:
         run: |
           printf '%s\n' \
             'CONFIG_PACKAGE_zabbix-proxy-openssl=m' \
-            'CONFIG_PACKAGE_libsqlite3-0=y' \
-            'CONFIG_PACKAGE_libnetsnmp-ssl=y' \
+            'CONFIG_PACKAGE_libsqlite3=y' \
+            'CONFIG_PACKAGE_libnetsnmp=y' \
             'CONFIG_PACKAGE_libpcre=y' \
             'CONFIG_PACKAGE_zlib=y' \
             '# CONFIG_PACKAGE_zabbix-proxy is not set' \
