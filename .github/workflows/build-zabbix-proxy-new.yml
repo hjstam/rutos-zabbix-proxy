@@ -56,7 +56,7 @@ jobs:
         working-directory: openwrt-sdk
         run: |
           ./scripts/feeds update packages
-          ./scripts/feeds install libnetsnmp libsqlite3 libpcre zlib
+          ./scripts/feeds install libnetsnmp libsqlite3 libpcre zlib zabbix
 
       - name: Copy package
         run: |
