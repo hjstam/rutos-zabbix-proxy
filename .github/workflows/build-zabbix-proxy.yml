@@ -131,7 +131,9 @@ jobs:
       - name: Configure build
         working-directory: openwrt-sdk
         run: |
-          echo 'CONFIG_PACKAGE_zabbix-proxy-openssl=m' > .config
+          # Unset zabbix-server before defconfig — it has DEFAULT_VARIANT:=1 so
+          # defconfig auto-enables it, but --disable-server means no binary exists.
+          printf 'CONFIG_PACKAGE_zabbix-proxy-openssl=m\n# CONFIG_PACKAGE_zabbix-server is not set\n' > .config
           make defconfig
           echo "=== Zabbix config ==="
           grep -i zabbix .config || true
