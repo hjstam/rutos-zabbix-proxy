@@ -66,6 +66,8 @@ jobs:
           sed -i 's/--with-postgresql[^ )\\]*/--with-sqlite3=$(STAGING_DIR)\/usr/g' "$MAKEFILE"
           # Match libpq with optional version suffix (e.g. libpq5)
           sed -i 's/+libpq[0-9]*/+libsqlite3-0/g' "$MAKEFILE"
+          # SQLite3 is only supported by the proxy, not the server; disable server to avoid configure error
+          sed -i 's/--enable-server/--disable-server/g' "$MAKEFILE"
 
           echo "=== After patch (db section) ==="
           grep -n "postgresql\|pgsql\|sqlite\|libpq" "$MAKEFILE" || true
@@ -73,6 +75,11 @@ jobs:
           # Fail if postgresql configure flag is still present
           if grep -q -- "--with-postgresql" "$MAKEFILE"; then
             echo "ERROR: --with-postgresql still present after patch"
+            exit 1
+          fi
+          # Fail if server is still enabled (would conflict with sqlite3)
+          if grep -q -- "--enable-server" "$MAKEFILE"; then
+            echo "ERROR: --enable-server still present after patch"
             exit 1
           fi
 
