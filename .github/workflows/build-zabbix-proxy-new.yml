@@ -55,8 +55,8 @@ jobs:
       - name: Update feeds
         working-directory: openwrt-sdk
         run: |
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          ./scripts/feeds update packages
+          ./scripts/feeds install libnetsnmp libsqlite3 libpcre zlib
 
       - name: Copy package
         run: |

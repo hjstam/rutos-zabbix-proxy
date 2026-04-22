@@ -44,11 +44,14 @@ jobs:
 
       # -----------------------------------------------------------------------
       # 4. Update and install feeds
+      #    Install both zabbix and libsqlite3-0 so the SDK knows how to build
+      #    sqlite3 as a zabbix-proxy dependency.
       # -----------------------------------------------------------------------
       - name: Update feeds
         working-directory: openwrt-sdk
         run: |
           ./scripts/feeds update -a
+          ./scripts/feeds install libsqlite3-0
           ./scripts/feeds install zabbix
 
       # -----------------------------------------------------------------------
@@ -59,27 +62,33 @@ jobs:
         run: |
           MAKEFILE="feeds/packages/admin/zabbix/Makefile"
 
-          echo "=== Before patch (db section) ==="
-          grep -n "postgresql\|pgsql\|sqlite\|libpq" "$MAKEFILE" || true
+          echo "=== Before patch (db/variant section) ==="
+          grep -n "postgresql\|pgsql\|sqlite\|libpq\|VARIANT\|DEFAULT_VARIANT" "$MAKEFILE" || true
 
-          # Replace the entire Make conditional with an unconditional --with-sqlite3 arg
-          sed -i 's|\$(if \$(CONFIG_ZABBIX_POSTGRESQL),--with-postgresql[^)]*)| --with-sqlite3=$(STAGING_DIR)/usr|g' "$MAKEFILE"
-          # Make libsqlite3-0 an unconditional dependency (remove the ZABBIX_POSTGRESQL: prefix)
-          sed -i 's/+ZABBIX_POSTGRESQL:libpq[0-9]*/+libsqlite3-0/g' "$MAKEFILE"
-          # SQLite3 is only supported by the proxy, not the server; disable server to avoid configure error
+          # Replace the PostgreSQL conditional configure flag with unconditional sqlite3
+          sed -i 's|$(if $(CONFIG_ZABBIX_POSTGRESQL),--with-postgresql)|--with-sqlite3=$(STAGING_DIR)/usr|g' "$MAKEFILE"
+          # Replace conditional libpq dependency with unconditional libsqlite3-0
+          sed -i 's/+ZABBIX_POSTGRESQL:libpq[^ ]*/+libsqlite3-0/g' "$MAKEFILE"
+          # SQLite3 is only supported by the proxy, not the server; disable server
           sed -i 's/--enable-server/--disable-server/g' "$MAKEFILE"
+          # Remove DEFAULT_VARIANT from all nossl packages so defconfig doesn't
+          # auto-enable them alongside the openssl variant we explicitly select.
+          sed -i '/VARIANT:=nossl/{n; /DEFAULT_VARIANT:=1/d}' "$MAKEFILE"
 
-          echo "=== After patch (db section) ==="
-          grep -n "postgresql\|pgsql\|sqlite\|libpq" "$MAKEFILE" || true
+          echo "=== After patch (db/variant section) ==="
+          grep -n "postgresql\|pgsql\|sqlite\|libpq\|VARIANT\|DEFAULT_VARIANT" "$MAKEFILE" || true
 
-          # Fail if postgresql configure flag is still present
+          # Validate patches applied
           if grep -q -- "--with-postgresql" "$MAKEFILE"; then
             echo "ERROR: --with-postgresql still present after patch"
             exit 1
           fi
-          # Fail if server is still enabled (would conflict with sqlite3)
           if grep -q -- "--enable-server" "$MAKEFILE"; then
             echo "ERROR: --enable-server still present after patch"
+            exit 1
+          fi
+          if grep -q -- "DEFAULT_VARIANT" "$MAKEFILE"; then
+            echo "ERROR: DEFAULT_VARIANT still present — nossl variants may auto-enable"
             exit 1
           fi
 
@@ -126,29 +135,48 @@ jobs:
           grep -A15 "Package/zabbix-proxy/install" "$MAKEFILE" || true
 
       # -----------------------------------------------------------------------
-      # 7. Configure the build
+      # 7. Build SQLite3 first so its headers/libs are in staging_dir
+      #    (zabbix configure --with-sqlite3 needs sqlite3.h at configure time)
+      # -----------------------------------------------------------------------
+      - name: Compile SQLite3 dependency
+        working-directory: openwrt-sdk
+        run: |
+          make package/feeds/packages/sqlite3/compile V=s 2>&1 | tee sqlite3.log
+          echo "=== SQLite3 staging_dir check ==="
+          find staging_dir -name "sqlite3.h" 2>/dev/null | head -5 \
+            && echo "sqlite3.h found in staging_dir" \
+            || { echo "ERROR: sqlite3.h not found in staging_dir after build"; exit 1; }
+
+      # -----------------------------------------------------------------------
+      # 8. Configure the build
       # -----------------------------------------------------------------------
       - name: Configure build
         working-directory: openwrt-sdk
         run: |
-          # Unset zabbix-server before defconfig — it has DEFAULT_VARIANT:=1 so
-          # defconfig auto-enables it, but --disable-server means no binary exists.
-          printf 'CONFIG_PACKAGE_zabbix-proxy-openssl=m\n# CONFIG_PACKAGE_zabbix-server is not set\n' > .config
+          # Enable only the openssl proxy variant; suppress server and nossl variants
+          # which would conflict or fail (server needs postgresql, nossl has no db).
+          printf '%s\n' \
+            'CONFIG_PACKAGE_zabbix-proxy-openssl=m' \
+            '# CONFIG_PACKAGE_zabbix-proxy is not set' \
+            '# CONFIG_PACKAGE_zabbix-server is not set' \
+            '# CONFIG_PACKAGE_zabbix-server-openssl is not set' \
+            '# CONFIG_PACKAGE_zabbix-agentd is not set' \
+            > .config
           make defconfig
-          echo "=== Zabbix config ==="
+          echo "=== Zabbix config after defconfig ==="
           grep -i zabbix .config || true
 
       # -----------------------------------------------------------------------
-      # 8. Build the package
+      # 9. Build the package
       # -----------------------------------------------------------------------
       - name: Build zabbix-proxy-openssl
         working-directory: openwrt-sdk
         run: |
-          make package/feeds/packages/zabbix/compile V=s -j$(nproc) 2>&1 | tee build.log
+          make package/feeds/packages/zabbix/compile V=s 2>&1 | tee build.log
           echo "=== Build complete ==="
 
       # -----------------------------------------------------------------------
-      # 9. Verify output — check init script and SQLite are in the .ipk
+      # 10. Verify output — check init script and SQLite are in the .ipk
       # -----------------------------------------------------------------------
       - name: Verify compiled package
         working-directory: openwrt-sdk
@@ -189,7 +217,7 @@ jobs:
           fi
 
       # -----------------------------------------------------------------------
-      # 10. Upload artifacts
+      # 11. Upload artifacts
       # -----------------------------------------------------------------------
       - name: Upload packages as artifacts
         uses: actions/upload-artifact@v6
@@ -202,6 +230,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: build-log
-          path: openwrt-sdk/build.log
+          name: build-logs
+          path: |
+            openwrt-sdk/build.log
+            openwrt-sdk/sqlite3.log
           retention-days: 7
