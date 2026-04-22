@@ -62,10 +62,10 @@ jobs:
           echo "=== Before patch (db section) ==="
           grep -n "postgresql\|pgsql\|sqlite\|libpq" "$MAKEFILE" || true
 
-          # Match --with-postgresql[=DIR]; exclude ) and \ so we don't eat make function closers
-          sed -i 's/--with-postgresql[^ )\\]*/--with-sqlite3=$(STAGING_DIR)\/usr/g' "$MAKEFILE"
-          # Match libpq with optional version suffix (e.g. libpq5)
-          sed -i 's/+libpq[0-9]*/+libsqlite3-0/g' "$MAKEFILE"
+          # Replace the entire Make conditional with an unconditional --with-sqlite3 arg
+          sed -i 's|\$(if \$(CONFIG_ZABBIX_POSTGRESQL),--with-postgresql[^)]*)| --with-sqlite3=$(STAGING_DIR)/usr|g' "$MAKEFILE"
+          # Make libsqlite3-0 an unconditional dependency (remove the ZABBIX_POSTGRESQL: prefix)
+          sed -i 's/+ZABBIX_POSTGRESQL:libpq[0-9]*/+libsqlite3-0/g' "$MAKEFILE"
           # SQLite3 is only supported by the proxy, not the server; disable server to avoid configure error
           sed -i 's/--enable-server/--disable-server/g' "$MAKEFILE"
 
@@ -131,7 +131,7 @@ jobs:
       - name: Configure build
         working-directory: openwrt-sdk
         run: |
-          printf 'CONFIG_PACKAGE_zabbix-proxy-openssl=m\nCONFIG_ZABBIX_POSTGRESQL=y\n' > .config
+          echo 'CONFIG_PACKAGE_zabbix-proxy-openssl=m' > .config
           make defconfig
           echo "=== Zabbix config ==="
           grep -i zabbix .config || true
