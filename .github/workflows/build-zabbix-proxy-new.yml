@@ -13,7 +13,6 @@ env:
   TARGET: ramips
   SUBTARGET: mt7621
   ARCH: mipsel_24kc
-  ZABBIX_VERSION: 6.0.45
 
 jobs:
   build:
@@ -55,32 +54,56 @@ jobs:
       - name: Update feeds
         working-directory: openwrt-sdk
         run: |
-          ./scripts/feeds update packages
-          ./scripts/feeds install libnetsnmp libsqlite3 libpcre zlib zabbix
+          ./scripts/feeds update -a
+          ./scripts/feeds install libsqlite3-0
+          ./scripts/feeds install zabbix
 
-      - name: Copy package
-        run: |
-          cp -r package/zabbix-proxy openwrt-sdk/package/zabbix-proxy
-
-      - name: Download Zabbix source and compute hash
+      - name: Patch Zabbix Makefile for SQLite3
         working-directory: openwrt-sdk
         run: |
-          wget -q https://cdn.zabbix.com/zabbix/sources/stable/6.0/zabbix-${{ env.ZABBIX_VERSION }}.tar.gz
-          HASH=$(sha256sum zabbix-${{ env.ZABBIX_VERSION }}.tar.gz | awk '{print $1}')
-          echo "ZABBIX_HASH=${HASH}" >> $GITHUB_ENV
-          # Put tarball where SDK expects it
-          mkdir -p dl
-          mv zabbix-${{ env.ZABBIX_VERSION }}.tar.gz dl/
+          MAKEFILE="feeds/packages/admin/zabbix/Makefile"
+          sed -i 's|$(if $(CONFIG_ZABBIX_POSTGRESQL),--with-postgresql)|--with-sqlite3=$(STAGING_DIR)/usr|g' "$MAKEFILE"
+          sed -i 's/+ZABBIX_POSTGRESQL:libpq[^ ]*/+libsqlite3-0/g' "$MAKEFILE"
+          sed -i 's/--enable-server/--disable-server/g' "$MAKEFILE"
+          sed -i '/VARIANT:=nossl/{n; /DEFAULT_VARIANT:=1/d}' "$MAKEFILE"
 
-      - name: Patch PKG_HASH in Makefile
+      - name: Add init.d script to package
         working-directory: openwrt-sdk
         run: |
-          sed -i "s|PKG_HASH:=.*|PKG_HASH:=${{ env.ZABBIX_HASH }}|" package/zabbix-proxy/Makefile
+          mkdir -p feeds/packages/admin/zabbix/files
+          cp "$GITHUB_WORKSPACE/zabbix_proxy.init" feeds/packages/admin/zabbix/files/zabbix_proxy.init
+          python3 << 'PYEOF'
+          import re
+          with open('feeds/packages/admin/zabbix/Makefile', 'r') as f:
+              content = f.read()
+          init_lines = '\n\t$(INSTALL_DIR) $(1)/etc/init.d\n\t$(INSTALL_BIN) ./files/zabbix_proxy.init $(1)/etc/init.d/zabbix_proxy\n'
+          if 'zabbix_proxy.init' not in content:
+              content = re.sub(r'(define Package/zabbix-proxy/install.*?)(endef)', lambda m: m.group(1) + init_lines + m.group(2), content, flags=re.DOTALL)
+          with open('feeds/packages/admin/zabbix/Makefile', 'w') as f:
+              f.write(content)
+          PYEOF
+
+      - name: Compile SQLite3 dependency
+        working-directory: openwrt-sdk
+        run: |
+          make package/feeds/packages/sqlite3/compile V=s 2>&1 | tee sqlite3.log
+
+      - name: Configure build
+        working-directory: openwrt-sdk
+        run: |
+          printf '%s\n' \
+            'CONFIG_PACKAGE_zabbix-proxy-openssl=m' \
+            '# CONFIG_PACKAGE_zabbix-proxy is not set' \
+            '# CONFIG_PACKAGE_zabbix-server is not set' \
+            '# CONFIG_PACKAGE_zabbix-server-openssl is not set' \
+            '# CONFIG_PACKAGE_zabbix-agentd is not set' \
+            > .config
+          make defconfig
 
       - name: Build package
         working-directory: openwrt-sdk
         run: |
-          make package/zabbix-proxy/compile V=s -j$(nproc) 2>&1 | tee build.log
+          make package/feeds/packages/zabbix/compile V=s 2>&1 | tee build.log
           echo "Exit code: ${PIPESTATUS[0]}"
 
       - name: Find built package
@@ -92,8 +115,8 @@ jobs:
         uses: actions/upload-artifact@v6
         if: success()
         with:
-          name: zabbix-proxy-${{ env.ZABBIX_VERSION }}-${{ env.ARCH }}
-          path: openwrt-sdk/bin/packages/${{ env.ARCH }}/**/zabbix-proxy*.ipk
+          name: zabbix-proxy-${{ env.ARCH }}
+          path: openwrt-sdk/bin/packages/${{ env.ARCH }}/packages/zabbix-proxy-*.ipk
           retention-days: 30
 
       - name: Upload build log on failure
