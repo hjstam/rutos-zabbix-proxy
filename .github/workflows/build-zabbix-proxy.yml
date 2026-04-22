@@ -59,11 +59,22 @@ jobs:
         run: |
           MAKEFILE="feeds/packages/admin/zabbix/Makefile"
 
-          sed -i 's/--with-pgsql/--with-sqlite3=$(STAGING_DIR)\/usr/g' "$MAKEFILE"
-          sed -i 's/+libpq/+libsqlite3-0/g' "$MAKEFILE"
+          echo "=== Before patch (db section) ==="
+          grep -n "postgresql\|pgsql\|sqlite\|libpq" "$MAKEFILE" || true
 
-          echo "=== Patched Makefile (db section) ==="
-          grep -A2 -B2 "sqlite\|pgsql" "$MAKEFILE" || true
+          # Match --with-postgresql[=DIR] (the actual Zabbix configure flag)
+          sed -i 's/--with-postgresql[^ ]*/--with-sqlite3=$(STAGING_DIR)\/usr/g' "$MAKEFILE"
+          # Match libpq with optional version suffix (e.g. libpq5)
+          sed -i 's/+libpq[0-9]*/+libsqlite3-0/g' "$MAKEFILE"
+
+          echo "=== After patch (db section) ==="
+          grep -n "postgresql\|pgsql\|sqlite\|libpq" "$MAKEFILE" || true
+
+          # Fail if postgresql configure flag is still present
+          if grep -q -- "--with-postgresql" "$MAKEFILE"; then
+            echo "ERROR: --with-postgresql still present after patch"
+            exit 1
+          fi
 
       # -----------------------------------------------------------------------
       # 6. Add init.d script to the Zabbix package
