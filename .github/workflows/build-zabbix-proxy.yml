@@ -225,6 +225,11 @@ jobs:
             && echo "sqlite3.h found in staging_dir" \
             || { echo "ERROR: sqlite3.h not found in staging_dir"; exit 1; }
 
+          make package/libs/openssl/compile V=s 2>&1 | tee openssl.log
+          find staging_dir -name "libssl.a" 2>/dev/null | head -5 \
+            && echo "libssl.a found in staging_dir" \
+            || { echo "ERROR: libssl.a not found in staging_dir"; exit 1; }
+
           make package/feeds/packages/net-snmp/compile V=s 2>&1 | tee netsnmp.log
           find staging_dir -name "libnetsnmp.a" 2>/dev/null | head -5 \
             && echo "libnetsnmp.a found in staging_dir" \
@@ -307,5 +312,6 @@ jobs:
           path: |
             openwrt-sdk/build.log
             openwrt-sdk/sqlite3.log
+            openwrt-sdk/openssl.log
             openwrt-sdk/netsnmp.log
           retention-days: 7
