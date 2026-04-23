@@ -201,6 +201,7 @@ jobs:
             'CONFIG_PACKAGE_zabbix-proxy-openssl=m' \
             'CONFIG_PACKAGE_libsqlite3=y' \
             'CONFIG_PACKAGE_libnetsnmp=y' \
+            'CONFIG_PACKAGE_libopenssl=y' \
             'CONFIG_PACKAGE_libpcre=y' \
             'CONFIG_PACKAGE_zlib=y' \
             '# CONFIG_PACKAGE_zabbix-proxy is not set' \
