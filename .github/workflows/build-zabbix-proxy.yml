@@ -69,7 +69,13 @@ jobs:
           wget -q \
             "https://raw.githubusercontent.com/openwrt/packages/openwrt-23.05/net/net-snmp/Makefile" \
             -O feeds/packages/net/net-snmp/Makefile
-          grep "^PKG_VERSION" feeds/packages/net/net-snmp/Makefile
+
+          # Enable OpenSSL so USM crypto symbols (AES, DES, HMAC-MD5/SHA1) are
+          # included — the RutOS ROM libnetsnmp is compiled without them
+          sed -i 's/--without-openssl/--with-openssl="$(STAGING_DIR)\/usr"/' \
+            feeds/packages/net/net-snmp/Makefile
+
+          grep "^PKG_VERSION\|openssl" feeds/packages/net/net-snmp/Makefile | head -5
 
       # -----------------------------------------------------------------------
       # 7. Fetch the openwrt-21.02 branch Makefile and patch it for
@@ -205,9 +211,15 @@ jobs:
             || { echo "ERROR: sqlite3.h not found in staging_dir"; exit 1; }
 
           make package/feeds/packages/net-snmp/compile V=s 2>&1 | tee netsnmp.log
-          find staging_dir -name "libnetsnmp.so*" 2>/dev/null | head -5 \
-            && echo "libnetsnmp found in staging_dir" \
-            || { echo "ERROR: libnetsnmp not found in staging_dir"; exit 1; }
+          find staging_dir -name "libnetsnmp.a" 2>/dev/null | head -5 \
+            && echo "libnetsnmp.a found in staging_dir" \
+            || { echo "ERROR: libnetsnmp.a not found in staging_dir"; exit 1; }
+
+          # Remove shared libs so the linker is forced to use libnetsnmp.a,
+          # statically linking SNMP into the zabbix_proxy binary.
+          # This avoids any runtime dependency on the device's system libnetsnmp.
+          find staging_dir -name "libnetsnmp*.so*" -delete
+          echo "Shared libnetsnmp removed — zabbix will link statically"
 
       # -----------------------------------------------------------------------
       # 11. Build the package
