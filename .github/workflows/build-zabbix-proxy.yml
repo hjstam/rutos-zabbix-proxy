@@ -90,7 +90,8 @@ jobs:
           sed -i '/$(if $(CONFIG_ZABBIX_MYSQL),--with-mysql)/d' "$MAKEFILE"
 
           # Add SNMP configure flag (before --with-libevent)
-          sed -i 's/--with-libevent/--with-net-snmp="$(STAGING_DIR)\/usr" \\\n\t--with-libevent/' "$MAKEFILE"
+          # Zabbix 5.0 --with-net-snmp expects the net-snmp-config script path, not the prefix dir
+          sed -i 's/--with-libevent/--with-net-snmp="$(STAGING_DIR)\/usr\/bin\/net-snmp-config" \\\n\t--with-libevent/' "$MAKEFILE"
 
           # Replace proxy DB dependencies with SQLite3 + SNMP libs
           sed -i 's/+ZABBIX_POSTGRESQL:libpq +ZABBIX_MYSQL:libmariadbclient/+libsqlite3 +libnetsnmp/g' "$MAKEFILE"
