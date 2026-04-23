@@ -70,6 +70,20 @@ jobs:
             "https://raw.githubusercontent.com/openwrt/packages/openwrt-23.05/net/net-snmp/Makefile" \
             -O feeds/packages/net/net-snmp/Makefile
 
+          # Replace patches too: 21.02 patches target 5.8 and fail against 5.9.1
+          PATCHES=$(curl -sf \
+            "https://api.github.com/repos/openwrt/packages/contents/net/net-snmp/patches?ref=openwrt-23.05" \
+            | python3 -c "import sys,json; [print(f['name']) for f in json.load(sys.stdin)]")
+          echo "Patches from openwrt-23.05: $PATCHES"
+          mkdir -p feeds/packages/net/net-snmp/patches
+          rm -f feeds/packages/net/net-snmp/patches/*
+          for patch in $PATCHES; do
+            wget -q \
+              "https://raw.githubusercontent.com/openwrt/packages/openwrt-23.05/net/net-snmp/patches/$patch" \
+              -O "feeds/packages/net/net-snmp/patches/$patch"
+            echo "Downloaded: $patch"
+          done
+
           # Enable OpenSSL so USM crypto symbols (AES, DES, HMAC-MD5/SHA1) are
           # included — the RutOS ROM libnetsnmp is compiled without them
           sed -i 's/--without-openssl/--with-openssl="$(STAGING_DIR)\/usr"/' \
