@@ -59,7 +59,20 @@ jobs:
           ./scripts/feeds install zabbix
 
       # -----------------------------------------------------------------------
-      # 5. Fetch the openwrt-21.02 branch Makefile and patch it for
+      # 5. Replace net-snmp Makefile with openwrt-23.05 version (5.9.1)
+      #    The 21.02 feed has 5.8 (libnetsnmp.so.35) but RutOS ships 5.9.1
+      #    (libnetsnmp.so.40), so we must compile against the matching version.
+      # -----------------------------------------------------------------------
+      - name: Replace net-snmp Makefile with openwrt-23.05 version
+        working-directory: openwrt-sdk
+        run: |
+          wget -q \
+            "https://raw.githubusercontent.com/openwrt/packages/openwrt-23.05/net/net-snmp/Makefile" \
+            -O feeds/packages/net/net-snmp/Makefile
+          grep "^PKG_VERSION" feeds/packages/net/net-snmp/Makefile
+
+      # -----------------------------------------------------------------------
+      # 7. Fetch the openwrt-21.02 branch Makefile and patch it for
       #    SQLite3 and SNMP support (neither exists in the 21.02 Makefile)
       # -----------------------------------------------------------------------
       - name: Patch Zabbix Makefile for SQLite3 and SNMP
@@ -116,7 +129,7 @@ jobs:
             || { echo "ERROR: DEFAULT_VARIANT still present"; exit 1; }
 
       # -----------------------------------------------------------------------
-      # 6. Add init.d script to the Zabbix package
+      # 8. Add init.d script to the Zabbix package
       # -----------------------------------------------------------------------
       - name: Add init.d script to package
         working-directory: openwrt-sdk
@@ -158,7 +171,7 @@ jobs:
           grep -A15 "Package/zabbix-proxy/install" "$MAKEFILE" || true
 
       # -----------------------------------------------------------------------
-      # 7. Configure the build — must run before compiling dependencies so
+      # 9. Configure the build — must run before compiling dependencies so
       #    .config exists when make is invoked
       # -----------------------------------------------------------------------
       - name: Configure build
@@ -180,7 +193,7 @@ jobs:
           grep -i zabbix .config || true
 
       # -----------------------------------------------------------------------
-      # 8. Pre-compile dependencies so their headers are in staging_dir
+      # 10. Pre-compile dependencies so their headers are in staging_dir
       #    before zabbix's configure script runs
       # -----------------------------------------------------------------------
       - name: Compile dependencies
@@ -197,7 +210,7 @@ jobs:
             || { echo "ERROR: libnetsnmp not found in staging_dir"; exit 1; }
 
       # -----------------------------------------------------------------------
-      # 9. Build the package
+      # 11. Build the package
       # -----------------------------------------------------------------------
       - name: Build zabbix-proxy-openssl
         working-directory: openwrt-sdk
@@ -206,7 +219,7 @@ jobs:
           echo "=== Build complete ==="
 
       # -----------------------------------------------------------------------
-      # 10. Verify output — check init script, SQLite3 and SNMP are in the .ipk
+      # 12. Verify output — check init script, SQLite3 and SNMP are in the .ipk
       # -----------------------------------------------------------------------
       - name: Verify compiled package
         working-directory: openwrt-sdk
@@ -250,7 +263,7 @@ jobs:
           fi
 
       # -----------------------------------------------------------------------
-      # 11. Upload artifacts
+      # 13. Upload artifacts
       # -----------------------------------------------------------------------
       - name: Upload packages as artifacts
         uses: actions/upload-artifact@v6
