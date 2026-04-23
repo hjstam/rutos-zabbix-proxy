@@ -157,24 +157,8 @@ jobs:
           grep -A15 "Package/zabbix-proxy/install" "$MAKEFILE" || true
 
       # -----------------------------------------------------------------------
-      # 7. Pre-compile dependencies so their headers are in staging_dir
-      #    before zabbix's configure script runs
-      # -----------------------------------------------------------------------
-      - name: Compile dependencies
-        working-directory: openwrt-sdk
-        run: |
-          make package/feeds/packages/sqlite3/compile V=s 2>&1 | tee sqlite3.log
-          find staging_dir -name "sqlite3.h" 2>/dev/null | head -5 \
-            && echo "sqlite3.h found in staging_dir" \
-            || { echo "ERROR: sqlite3.h not found in staging_dir"; exit 1; }
-
-          make package/feeds/packages/net-snmp/compile V=s 2>&1 | tee netsnmp.log
-          find staging_dir -name "libnetsnmp.so*" 2>/dev/null | head -5 \
-            && echo "libnetsnmp found in staging_dir" \
-            || { echo "ERROR: libnetsnmp not found in staging_dir"; exit 1; }
-
-      # -----------------------------------------------------------------------
-      # 8. Configure the build
+      # 7. Configure the build — must run before compiling dependencies so
+      #    .config exists when make is invoked
       # -----------------------------------------------------------------------
       - name: Configure build
         working-directory: openwrt-sdk
@@ -193,6 +177,23 @@ jobs:
           make defconfig
           echo "=== Zabbix config after defconfig ==="
           grep -i zabbix .config || true
+
+      # -----------------------------------------------------------------------
+      # 8. Pre-compile dependencies so their headers are in staging_dir
+      #    before zabbix's configure script runs
+      # -----------------------------------------------------------------------
+      - name: Compile dependencies
+        working-directory: openwrt-sdk
+        run: |
+          make package/feeds/packages/sqlite3/compile V=s 2>&1 | tee sqlite3.log
+          find staging_dir -name "sqlite3.h" 2>/dev/null | head -5 \
+            && echo "sqlite3.h found in staging_dir" \
+            || { echo "ERROR: sqlite3.h not found in staging_dir"; exit 1; }
+
+          make package/feeds/packages/net-snmp/compile V=s 2>&1 | tee netsnmp.log
+          find staging_dir -name "libnetsnmp.so*" 2>/dev/null | head -5 \
+            && echo "libnetsnmp found in staging_dir" \
+            || { echo "ERROR: libnetsnmp not found in staging_dir"; exit 1; }
 
       # -----------------------------------------------------------------------
       # 9. Build the package
