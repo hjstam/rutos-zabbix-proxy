@@ -101,6 +101,20 @@ jobs:
             "https://raw.githubusercontent.com/openwrt/packages/openwrt-23.05/admin/zabbix/Makefile" \
             -O "$MAKEFILE"
 
+          # Replace patches too: 21.02 patches target Zabbix 5.x and fail against 6.x
+          ZABBIX_PATCHES=$(curl -sf \
+            "https://api.github.com/repos/openwrt/packages/contents/admin/zabbix/patches?ref=openwrt-23.05" \
+            | python3 -c "import sys,json; [print(f['name']) for f in json.load(sys.stdin)]")
+          echo "Zabbix patches from openwrt-23.05: $ZABBIX_PATCHES"
+          mkdir -p feeds/packages/admin/zabbix/patches
+          rm -f feeds/packages/admin/zabbix/patches/*
+          for patch in $ZABBIX_PATCHES; do
+            wget -q \
+              "https://raw.githubusercontent.com/openwrt/packages/openwrt-23.05/admin/zabbix/patches/$patch" \
+              -O "feeds/packages/admin/zabbix/patches/$patch"
+            echo "Downloaded: $patch"
+          done
+
           if [ -n "${{ inputs.zabbix_version }}" ]; then
             sed -i "s/PKG_VERSION:=.*/PKG_VERSION:=${{ inputs.zabbix_version }}/" "$MAKEFILE"
             sed -i "s/PKG_HASH:=.*/PKG_HASH:=skip/" "$MAKEFILE"
@@ -205,12 +219,18 @@ jobs:
       - name: Compile dependencies
         working-directory: openwrt-sdk
         run: |
+          set -o pipefail
+
           make package/feeds/packages/sqlite3/compile V=s 2>&1 | tee sqlite3.log
           find staging_dir -name "sqlite3.h" 2>/dev/null | head -5 \
             && echo "sqlite3.h found in staging_dir" \
             || { echo "ERROR: sqlite3.h not found in staging_dir"; exit 1; }
 
           make package/feeds/packages/libevent2/compile V=s 2>&1 | tee libevent2.log
+          find staging_dir -name "event2" -type d 2>/dev/null | head -5 \
+            && echo "libevent2 headers found in staging_dir" \
+            || { echo "ERROR: libevent2 headers not found in staging_dir"; exit 1; }
+
           make package/feeds/packages/pcre2/compile V=s 2>&1 | tee pcre2.log
 
           make package/feeds/packages/net-snmp/compile V=s 2>&1 | tee netsnmp.log
