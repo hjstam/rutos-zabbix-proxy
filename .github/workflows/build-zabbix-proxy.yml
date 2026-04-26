@@ -56,6 +56,8 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install libsqlite3
           ./scripts/feeds install libnetsnmp
+          ./scripts/feeds install libpcre2
+          ./scripts/feeds install libevent2
           ./scripts/feeds install zabbix
 
       # -----------------------------------------------------------------------
@@ -87,16 +89,16 @@ jobs:
           grep "^PKG_VERSION" feeds/packages/net/net-snmp/Makefile | head -2
 
       # -----------------------------------------------------------------------
-      # 7. Fetch the openwrt-21.02 branch Makefile and patch it for
-      #    SQLite3 and SNMP support (neither exists in the 21.02 Makefile)
+      # 7. Fetch the openwrt-23.05 branch Makefile (Zabbix 6.x, has native
+      #    SQLite3 support) and patch it for SNMP support
       # -----------------------------------------------------------------------
-      - name: Patch Zabbix Makefile for SQLite3 and SNMP
+      - name: Patch Zabbix Makefile for SNMP
         working-directory: openwrt-sdk
         run: |
           MAKEFILE="feeds/packages/admin/zabbix/Makefile"
 
           wget -q \
-            "https://raw.githubusercontent.com/openwrt/packages/openwrt-21.02/admin/zabbix/Makefile" \
+            "https://raw.githubusercontent.com/openwrt/packages/openwrt-23.05/admin/zabbix/Makefile" \
             -O "$MAKEFILE"
 
           if [ -n "${{ inputs.zabbix_version }}" ]; then
@@ -106,40 +108,26 @@ jobs:
           fi
 
           echo "=== Before patches ==="
-          grep -n "enable-server\|mysql\|postgresql\|snmp\|DEFAULT_VARIANT" "$MAKEFILE" || true
-
-          # Disable server (SQLite3 is not supported by the server)
-          sed -i 's/--enable-server/--disable-server/g' "$MAKEFILE"
-
-          # Replace PostgreSQL configure flag with SQLite3
-          sed -i 's|$(if $(CONFIG_ZABBIX_POSTGRESQL),--with-postgresql)|--with-sqlite3=$(STAGING_DIR)/usr|g' "$MAKEFILE"
-
-          # Remove MySQL configure flag
-          sed -i '/$(if $(CONFIG_ZABBIX_MYSQL),--with-mysql)/d' "$MAKEFILE"
+          grep -n "snmp\|DEFAULT_VARIANT\|libnetsnmp" "$MAKEFILE" || true
 
           # Add SNMP configure flag (before --with-libevent)
-          # Zabbix 5.0 --with-net-snmp expects the net-snmp-config script path, not the prefix dir
           sed -i 's/--with-libevent/--with-net-snmp="$(STAGING_DIR)\/usr\/bin\/net-snmp-config" \\\n\t--with-libevent/' "$MAKEFILE"
 
-          # Replace proxy DB dependencies with SQLite3 + SNMP libs
-          sed -i 's/+ZABBIX_POSTGRESQL:libpq +ZABBIX_MYSQL:libmariadbclient/+libsqlite3 +libnetsnmp/g' "$MAKEFILE"
+          # Add libnetsnmp to proxy Default DEPENDS
+          sed -i 's/+ZABBIX_SQLITE:libsqlite3 \\/+ZABBIX_SQLITE:libsqlite3 \\\n    +libnetsnmp \\/' "$MAKEFILE"
 
           # Remove DEFAULT_VARIANT from nossl variants so defconfig doesn't
           # auto-enable them alongside the openssl variant we explicitly select
           sed -i '/VARIANT:=nossl/{n; /DEFAULT_VARIANT:=1/d}' "$MAKEFILE"
 
           echo "=== After patches ==="
-          grep -n "enable-server\|sqlite\|snmp\|DEFAULT_VARIANT" "$MAKEFILE" || true
+          grep -n "snmp\|DEFAULT_VARIANT\|libnetsnmp" "$MAKEFILE" || true
 
           # Validate patches applied correctly
-          grep -q -- "--disable-server" "$MAKEFILE" \
-            || { echo "ERROR: --disable-server not found"; exit 1; }
-          grep -q -- "--with-sqlite3" "$MAKEFILE" \
-            || { echo "ERROR: --with-sqlite3 not found"; exit 1; }
           grep -q -- "--with-net-snmp" "$MAKEFILE" \
             || { echo "ERROR: --with-net-snmp not found"; exit 1; }
-          ! grep -q -- "--with-postgresql" "$MAKEFILE" \
-            || { echo "ERROR: --with-postgresql still present"; exit 1; }
+          grep -q "libnetsnmp" "$MAKEFILE" \
+            || { echo "ERROR: libnetsnmp not found in DEPENDS"; exit 1; }
           ! grep -q -- "DEFAULT_VARIANT" "$MAKEFILE" \
             || { echo "ERROR: DEFAULT_VARIANT still present"; exit 1; }
 
@@ -193,10 +181,13 @@ jobs:
         working-directory: openwrt-sdk
         run: |
           printf '%s\n' \
+            'CONFIG_ZABBIX_SQLITE=y' \
             'CONFIG_PACKAGE_zabbix-proxy-openssl=m' \
             'CONFIG_PACKAGE_libsqlite3=y' \
             'CONFIG_PACKAGE_libnetsnmp=y' \
-            'CONFIG_PACKAGE_libpcre=y' \
+            'CONFIG_PACKAGE_libevent2=y' \
+            'CONFIG_PACKAGE_libevent2-pthreads=y' \
+            'CONFIG_PACKAGE_libpcre2=y' \
             'CONFIG_PACKAGE_zlib=y' \
             '# CONFIG_PACKAGE_zabbix-proxy is not set' \
             '# CONFIG_PACKAGE_zabbix-server is not set' \
@@ -218,6 +209,9 @@ jobs:
           find staging_dir -name "sqlite3.h" 2>/dev/null | head -5 \
             && echo "sqlite3.h found in staging_dir" \
             || { echo "ERROR: sqlite3.h not found in staging_dir"; exit 1; }
+
+          make package/feeds/packages/libevent2/compile V=s 2>&1 | tee libevent2.log
+          make package/feeds/packages/pcre2/compile V=s 2>&1 | tee pcre2.log
 
           make package/feeds/packages/net-snmp/compile V=s 2>&1 | tee netsnmp.log
           find staging_dir -name "libnetsnmp.a" 2>/dev/null | head -5 \
@@ -301,5 +295,7 @@ jobs:
           path: |
             openwrt-sdk/build.log
             openwrt-sdk/sqlite3.log
+            openwrt-sdk/libevent2.log
+            openwrt-sdk/pcre2.log
             openwrt-sdk/netsnmp.log
           retention-days: 7
