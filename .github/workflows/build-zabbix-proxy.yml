@@ -57,7 +57,7 @@ jobs:
           ./scripts/feeds install libsqlite3
           ./scripts/feeds install libnetsnmp
           ./scripts/feeds install libpcre2
-          ./scripts/feeds install libevent2
+          ./scripts/feeds install libevent2-core
           ./scripts/feeds install zabbix
 
       # -----------------------------------------------------------------------
