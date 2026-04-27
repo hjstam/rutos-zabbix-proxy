@@ -87,6 +87,13 @@ jobs:
 
           grep "^PKG_VERSION" feeds/packages/net/net-snmp/Makefile | head -2
 
+          # libevent2 is in openwrt/openwrt base but omitted from the SDK tarball
+          mkdir -p package/libs/libevent2
+          wget -q \
+            "https://raw.githubusercontent.com/openwrt/openwrt/openwrt-21.02/package/libs/libevent2/Makefile" \
+            -O package/libs/libevent2/Makefile
+          echo "libevent2 Makefile installed at package/libs/libevent2/"
+
       # -----------------------------------------------------------------------
       # 7. Fetch the openwrt-23.05 branch Makefile (Zabbix 6.x, has native
       #    SQLite3 support) and patch it for SNMP support
