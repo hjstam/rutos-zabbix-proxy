@@ -293,6 +293,13 @@ jobs:
           find staging_dir -name "libnetsnmp*.so*" -delete
           echo "Shared libnetsnmp removed — zabbix will link statically"
 
+          # The unbound package (net-snmp dep) builds libevent2 via the SDK
+          # package system with shared libs enabled, overriding our static-only
+          # manual build. Remove the .so files so zabbix links libevent statically.
+          find staging_dir -name "libevent*.so*" -delete
+          find staging_dir -name "libevent*.la" -delete
+          echo "Shared libevent removed — zabbix will link statically"
+
       # -----------------------------------------------------------------------
       # 11. Build the package
       # -----------------------------------------------------------------------
