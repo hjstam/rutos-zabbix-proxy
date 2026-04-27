@@ -57,6 +57,7 @@ jobs:
           ./scripts/feeds install libsqlite3
           ./scripts/feeds install libnetsnmp
           ./scripts/feeds install libpcre2
+          ./scripts/feeds install fping
           ./scripts/feeds install zabbix
 
       # -----------------------------------------------------------------------
@@ -143,8 +144,6 @@ jobs:
           # Add libnetsnmp to proxy Default DEPENDS
           sed -i 's/+ZABBIX_SQLITE:libsqlite3 \\/+ZABBIX_SQLITE:libsqlite3 \\\n    +libnetsnmp \\/' "$MAKEFILE"
 
-          # Remove fping — not available on RutOS, only needed for ICMP checks
-          sed -i 's/+fping //g; s/ +fping//g' "$MAKEFILE"
 
           # Remove libevent2 runtime deps — statically linked into the binary
           sed -i 's/+libevent2-pthreads //g; s/ +libevent2-pthreads//g' "$MAKEFILE"
@@ -278,6 +277,11 @@ jobs:
             && echo "libssl.a found in staging_dir" \
             || { echo "ERROR: libssl.a not found in staging_dir"; exit 1; }
 
+          make package/feeds/packages/fping/compile V=s 2>&1 | tee fping.log
+          find bin -name "fping*.ipk" 2>/dev/null | head -3 \
+            && echo "fping .ipk built" \
+            || { echo "ERROR: fping .ipk not found"; exit 1; }
+
           make package/feeds/packages/net-snmp/compile V=s 2>&1 | tee netsnmp.log
           find staging_dir -name "libnetsnmp.a" 2>/dev/null | head -5 \
             && echo "libnetsnmp.a found in staging_dir" \
@@ -349,7 +353,9 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: zabbix-proxy-sqlite3-snmp-mipsel_24kc
-          path: openwrt-sdk/bin/packages/mipsel_24kc/packages/zabbix-proxy-*.ipk
+          path: |
+            openwrt-sdk/bin/packages/mipsel_24kc/packages/zabbix-proxy-*.ipk
+            openwrt-sdk/bin/packages/mipsel_24kc/packages/fping_*.ipk
           retention-days: 30
 
       - name: Upload build logs
