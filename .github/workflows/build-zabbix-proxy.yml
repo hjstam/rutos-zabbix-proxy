@@ -256,6 +256,12 @@ jobs:
 
           make package/feeds/packages/pcre2/compile V=s 2>&1 | tee pcre2.log
 
+          # OpenSSL must be staged before net-snmp so --with-openssl finds it
+          make package/feeds/packages/openssl/compile V=s 2>&1 | tee openssl.log
+          find staging_dir -name "libssl.a" 2>/dev/null | head -3 \
+            && echo "libssl.a found in staging_dir" \
+            || { echo "ERROR: libssl.a not found in staging_dir"; exit 1; }
+
           make package/feeds/packages/net-snmp/compile V=s 2>&1 | tee netsnmp.log
           find staging_dir -name "libnetsnmp.a" 2>/dev/null | head -5 \
             && echo "libnetsnmp.a found in staging_dir" \
