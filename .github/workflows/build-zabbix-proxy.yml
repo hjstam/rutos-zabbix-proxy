@@ -143,6 +143,13 @@ jobs:
           # Add libnetsnmp to proxy Default DEPENDS
           sed -i 's/+ZABBIX_SQLITE:libsqlite3 \\/+ZABBIX_SQLITE:libsqlite3 \\\n    +libnetsnmp \\/' "$MAKEFILE"
 
+          # Remove fping — not available on RutOS, only needed for ICMP checks
+          sed -i 's/+fping //g; s/ +fping//g' "$MAKEFILE"
+
+          # Remove libevent2 runtime deps — statically linked into the binary
+          sed -i 's/+libevent2-pthreads //g; s/ +libevent2-pthreads//g' "$MAKEFILE"
+          sed -i 's/+libevent2 //g; s/ +libevent2//g' "$MAKEFILE"
+
           # Remove DEFAULT_VARIANT from nossl variants so defconfig doesn't
           # auto-enable them alongside the openssl variant we explicitly select
           sed -i '/VARIANT:=nossl/{n; /DEFAULT_VARIANT:=1/d}' "$MAKEFILE"
