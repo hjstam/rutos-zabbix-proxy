@@ -91,15 +91,14 @@ jobs:
           sed -i 's/--without-openssl/--with-openssl="$(STAGING_DIR)\/usr"/' \
             feeds/packages/net/net-snmp/Makefile
 
-          # The openwrt-23.05 Makefile guards the libopenssl dependency behind
-          # +NETSNMP_OPENSSL:libopenssl.  We force --with-openssl above but never
-          # set CONFIG_NETSNMP_OPENSSL, so the packager omits libopenssl from
-          # DEPENDS and fails with "missing dependencies for libcrypto.so.1.1".
-          # Make the dependency unconditional to match the forced configure flag.
-          sed -i 's/+NETSNMP_OPENSSL:libopenssl/+libopenssl/' \
+          # The openwrt-23.05 net-snmp Makefile does not list libopenssl in
+          # Package/libnetsnmp DEPENDS.  Since we force --with-openssl above,
+          # libnetsnmp.so links against libcrypto.so.1.1 and the packager fails
+          # with "missing dependencies" unless we add +libopenssl to DEPENDS.
+          sed -i '/define Package\/libnetsnmp/,/^endef/ { /DEPENDS:=/ s/$/ +libopenssl/ }' \
             feeds/packages/net/net-snmp/Makefile
 
-          grep "^PKG_VERSION\|openssl" feeds/packages/net/net-snmp/Makefile | head -5
+          grep "^PKG_VERSION\|openssl\|DEPENDS" feeds/packages/net/net-snmp/Makefile | head -10
 
 
       # -----------------------------------------------------------------------
@@ -265,7 +264,9 @@ jobs:
           make package/feeds/packages/pcre2/compile V=s 2>&1 | tee pcre2.log
 
           # OpenSSL must be staged before net-snmp so --with-openssl finds it
-          make package/feeds/base/openssl/compile V=s 2>&1 | tee openssl.log
+          # (no V=s — the kernel dependency it pulls in generates ~10k lines and
+          # truncates the GitHub Actions log before any later failures are visible)
+          make package/feeds/base/openssl/compile 2>&1 | tee openssl.log
           find staging_dir -name "libssl.a" 2>/dev/null | head -3 \
             && echo "libssl.a found in staging_dir" \
             || { echo "ERROR: libssl.a not found in staging_dir"; exit 1; }
