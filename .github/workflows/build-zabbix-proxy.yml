@@ -57,7 +57,6 @@ jobs:
           ./scripts/feeds install libsqlite3
           ./scripts/feeds install libnetsnmp
           ./scripts/feeds install libpcre2
-          ./scripts/feeds install libevent2-core
           ./scripts/feeds install zabbix
 
       # -----------------------------------------------------------------------
@@ -87,6 +86,13 @@ jobs:
           done
 
           grep "^PKG_VERSION" feeds/packages/net/net-snmp/Makefile | head -2
+
+          # libevent2 is absent from the 21.02 packages feed — fetch from openwrt-23.05
+          mkdir -p feeds/packages/libs/libevent2
+          wget -q \
+            "https://raw.githubusercontent.com/openwrt/packages/openwrt-23.05/libs/libevent2/Makefile" \
+            -O feeds/packages/libs/libevent2/Makefile
+          ./scripts/feeds install libevent2
 
       # -----------------------------------------------------------------------
       # 7. Fetch the openwrt-23.05 branch Makefile (Zabbix 6.x, has native
