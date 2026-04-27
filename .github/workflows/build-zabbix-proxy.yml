@@ -85,7 +85,13 @@ jobs:
             echo "Downloaded: $patch"
           done
 
-          grep "^PKG_VERSION" feeds/packages/net/net-snmp/Makefile | head -2
+          # Enable OpenSSL so SHA-2 USM auth OIDs (usmHMAC384SHA512AuthProtocol
+          # etc.) are compiled into libnetsnmp.a — without this Zabbix links
+          # against symbols the library doesn't define.
+          sed -i 's/--without-openssl/--with-openssl="$(STAGING_DIR)\/usr"/' \
+            feeds/packages/net/net-snmp/Makefile
+
+          grep "^PKG_VERSION\|openssl" feeds/packages/net/net-snmp/Makefile | head -5
 
 
       # -----------------------------------------------------------------------
