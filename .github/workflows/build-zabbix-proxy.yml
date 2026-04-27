@@ -99,6 +99,14 @@ jobs:
           sed -i '/define Package\/libnetsnmp/,/^endef/ { /DEPENDS:=/ s/$/ +libopenssl/ }' \
             feeds/packages/net/net-snmp/Makefile
 
+          # Remove libunbound from net-snmp DEPENDS — we don't use DTLS transport,
+          # and unbound transitively pulls in libevent2 shared libs. Without this,
+          # the SDK stages libevent2.so during zabbix compile's dep resolution,
+          # causing zabbix_proxy to link dynamically against a lib that isn't
+          # available on the device.
+          sed -i 's/+libunbound //g; s/ +libunbound//g' \
+            feeds/packages/net/net-snmp/Makefile
+
           grep "^PKG_VERSION\|openssl\|DEPENDS" feeds/packages/net/net-snmp/Makefile | head -10
 
 
@@ -306,6 +314,10 @@ jobs:
       - name: Build zabbix-proxy-openssl
         working-directory: openwrt-sdk
         run: |
+          # Belt-and-suspenders: purge shared libevent one final time before
+          # zabbix links, in case the SDK's dep resolver re-staged them.
+          find staging_dir -name "libevent*.so*" -delete
+          find staging_dir -name "libevent*.la" -delete
           make package/feeds/packages/zabbix/compile V=s 2>&1 | tee build.log
           echo "=== Build complete ==="
 
