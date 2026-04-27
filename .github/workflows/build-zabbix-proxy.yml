@@ -87,12 +87,6 @@ jobs:
 
           grep "^PKG_VERSION" feeds/packages/net/net-snmp/Makefile | head -2
 
-          # libevent2 is in openwrt/openwrt base but omitted from the SDK tarball
-          mkdir -p package/libs/libevent2
-          wget -q \
-            "https://raw.githubusercontent.com/openwrt/openwrt/openwrt-21.02/package/libs/libevent2/Makefile" \
-            -O package/libs/libevent2/Makefile
-          echo "libevent2 Makefile installed at package/libs/libevent2/"
 
       # -----------------------------------------------------------------------
       # 7. Fetch the openwrt-23.05 branch Makefile (Zabbix 6.x, has native
@@ -205,8 +199,6 @@ jobs:
             'CONFIG_PACKAGE_zabbix-proxy-openssl=m' \
             'CONFIG_PACKAGE_libsqlite3=y' \
             'CONFIG_PACKAGE_libnetsnmp=y' \
-            'CONFIG_PACKAGE_libevent2=y' \
-            'CONFIG_PACKAGE_libevent2-pthreads=y' \
             'CONFIG_PACKAGE_libpcre2=y' \
             'CONFIG_PACKAGE_zlib=y' \
             '# CONFIG_PACKAGE_zabbix-proxy is not set' \
@@ -232,7 +224,26 @@ jobs:
             && echo "sqlite3.h found in staging_dir" \
             || { echo "ERROR: sqlite3.h not found in staging_dir"; exit 1; }
 
-          make package/libs/libevent2/compile V=s 2>&1 | tee libevent2.log
+          # Cross-compile libevent2 directly — SDK package system can't find it
+          TOOLCHAIN="$(pwd)/staging_dir/toolchain-mipsel_24kc_gcc-8.4.0_musl"
+          SYSROOT="$(pwd)/staging_dir/target-mipsel_24kc_musl/usr"
+          wget -q "https://github.com/libevent/libevent/releases/download/release-2.1.12-stable/libevent-2.1.12-stable.tar.gz"
+          tar -xzf libevent-2.1.12-stable.tar.gz
+          cd libevent-2.1.12-stable
+          ./configure \
+            --host=mipsel-openwrt-linux-musl \
+            --prefix="$SYSROOT" \
+            CC="$TOOLCHAIN/bin/mipsel-openwrt-linux-musl-gcc" \
+            AR="$TOOLCHAIN/bin/mipsel-openwrt-linux-musl-gcc-ar" \
+            CFLAGS="-Os -mips32r2 -mtune=24kc -msoft-float" \
+            LDFLAGS="-L$TOOLCHAIN/lib" \
+            --disable-openssl \
+            --disable-samples \
+            --disable-shared \
+            --enable-static 2>&1 | tee ../libevent2.log
+          make -j$(nproc) 2>&1 | tee -a ../libevent2.log
+          make install 2>&1 | tee -a ../libevent2.log
+          cd ..
           find staging_dir -name "event2" -type d 2>/dev/null | head -5 \
             && echo "libevent2 headers found in staging_dir" \
             || { echo "ERROR: libevent2 headers not found in staging_dir"; exit 1; }
