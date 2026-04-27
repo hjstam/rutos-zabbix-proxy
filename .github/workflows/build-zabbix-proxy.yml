@@ -91,6 +91,14 @@ jobs:
           sed -i 's/--without-openssl/--with-openssl="$(STAGING_DIR)\/usr"/' \
             feeds/packages/net/net-snmp/Makefile
 
+          # The openwrt-23.05 Makefile guards the libopenssl dependency behind
+          # +NETSNMP_OPENSSL:libopenssl.  We force --with-openssl above but never
+          # set CONFIG_NETSNMP_OPENSSL, so the packager omits libopenssl from
+          # DEPENDS and fails with "missing dependencies for libcrypto.so.1.1".
+          # Make the dependency unconditional to match the forced configure flag.
+          sed -i 's/+NETSNMP_OPENSSL:libopenssl/+libopenssl/' \
+            feeds/packages/net/net-snmp/Makefile
+
           grep "^PKG_VERSION\|openssl" feeds/packages/net/net-snmp/Makefile | head -5
 
 
