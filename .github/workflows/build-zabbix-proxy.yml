@@ -60,6 +60,13 @@ jobs:
           ./scripts/feeds install fping
           ./scripts/feeds install zabbix
 
+          # Force the SDK's libevent2 package to build static libraries only.
+          # By default it builds both shared and static; zabbix then picks up
+          # the .so and ends up with DT_NEEDED entries the packager rejects.
+          # Appending CMAKE_OPTIONS here is picked up by the OpenWrt CMake helper.
+          printf '\nCMAKE_OPTIONS += -DBUILD_SHARED_LIBS=OFF\n' \
+            >> feeds/base/package/libs/libevent2/Makefile
+
       # -----------------------------------------------------------------------
       # 5. Replace net-snmp Makefile with openwrt-23.05 version (5.9.1)
       #    The 21.02 feed has 5.8 (libnetsnmp.so.35) but RutOS ships 5.9.1
