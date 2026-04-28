@@ -22,9 +22,12 @@ The compiled package is available as the `zabbix-proxy-sqlite3-mipsel_24kc` arti
 
 ## Installation on the RUTM30
 
-Download the `.ipk` artifact from GitHub Actions, then on the router:
+Download the artifact from GitHub Actions (it contains the zabbix-proxy package and its libevent2 runtime dependencies). Transfer all `.ipk` files to the router, then install in dependency order:
 
 ```sh
+opkg install libevent2-core7_*.ipk
+opkg install libevent2-7_*.ipk
+opkg install libevent2-pthreads7_*.ipk
 opkg install zabbix-proxy-openssl_*.ipk
 ```
 

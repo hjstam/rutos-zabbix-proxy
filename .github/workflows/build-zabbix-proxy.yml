@@ -328,8 +328,7 @@ jobs:
           path: |
             openwrt-sdk/bin/packages/mipsel_24kc/packages/zabbix-proxy-*.ipk
             openwrt-sdk/bin/packages/mipsel_24kc/packages/fping_*.ipk
-            openwrt-sdk/bin/packages/mipsel_24kc/base/libevent2-7_*.ipk
-            openwrt-sdk/bin/packages/mipsel_24kc/base/libevent2-pthreads7_*.ipk
+            openwrt-sdk/bin/packages/mipsel_24kc/base/libevent2*.ipk
           retention-days: 30
 
       - name: Upload build logs
