@@ -60,15 +60,6 @@ jobs:
           ./scripts/feeds install fping
           ./scripts/feeds install zabbix
 
-          # Force the SDK's libevent2 package to build static libraries only.
-          # By default it builds both shared and static; zabbix then picks up
-          # the .so and ends up with DT_NEEDED entries the packager rejects.
-          # The libevent2 Makefile uses hardcoded cmake flags (not CMAKE_OPTIONS),
-          # so we target an existing flag and append the static-only option.
-          # -DEVENT__LIBRARY_TYPE=STATIC is the libevent CMake variable for this.
-          sed -i 's/-DBUILD_TESTING:BOOL=OFF/-DBUILD_TESTING:BOOL=OFF -DEVENT__LIBRARY_TYPE=STATIC/' \
-            feeds/base/package/libs/libevent2/Makefile
-
       # -----------------------------------------------------------------------
       # 5. Replace net-snmp Makefile with openwrt-23.05 version (5.9.1)
       #    The 21.02 feed has 5.8 (libnetsnmp.so.35) but RutOS ships 5.9.1
@@ -106,14 +97,6 @@ jobs:
           # libnetsnmp.so links against libcrypto.so.1.1 and the packager fails
           # with "missing dependencies" unless we add +libopenssl to DEPENDS.
           sed -i '/define Package\/libnetsnmp/,/^endef/ { /DEPENDS:=/ s/$/ +libopenssl/ }' \
-            feeds/packages/net/net-snmp/Makefile
-
-          # Remove libunbound from net-snmp DEPENDS — we don't use DTLS transport,
-          # and unbound transitively pulls in libevent2 shared libs. Without this,
-          # the SDK stages libevent2.so during zabbix compile's dep resolution,
-          # causing zabbix_proxy to link dynamically against a lib that isn't
-          # available on the device.
-          sed -i 's/+libunbound //g; s/ +libunbound//g' \
             feeds/packages/net/net-snmp/Makefile
 
           grep "^PKG_VERSION\|openssl\|DEPENDS" feeds/packages/net/net-snmp/Makefile | head -10
@@ -161,10 +144,6 @@ jobs:
           # Add libnetsnmp to proxy Default DEPENDS
           sed -i 's/+ZABBIX_SQLITE:libsqlite3 \\/+ZABBIX_SQLITE:libsqlite3 \\\n    +libnetsnmp \\/' "$MAKEFILE"
 
-
-          # Remove libevent2 runtime deps — statically linked into the binary
-          sed -i 's/+libevent2-pthreads //g; s/ +libevent2-pthreads//g' "$MAKEFILE"
-          sed -i 's/+libevent2 //g; s/ +libevent2//g' "$MAKEFILE"
 
           # Remove DEFAULT_VARIANT from nossl variants so defconfig doesn't
           # auto-enable them alongside the openssl variant we explicitly select
@@ -260,30 +239,6 @@ jobs:
             && echo "sqlite3.h found in staging_dir" \
             || { echo "ERROR: sqlite3.h not found in staging_dir"; exit 1; }
 
-          # Cross-compile libevent2 directly — SDK package system can't find it
-          TOOLCHAIN="$(pwd)/staging_dir/toolchain-mipsel_24kc_gcc-8.4.0_musl"
-          SYSROOT="$(pwd)/staging_dir/target-mipsel_24kc_musl/usr"
-          wget -q "https://github.com/libevent/libevent/releases/download/release-2.1.12-stable/libevent-2.1.12-stable.tar.gz"
-          tar -xzf libevent-2.1.12-stable.tar.gz
-          cd libevent-2.1.12-stable
-          ./configure \
-            --host=mipsel-openwrt-linux-musl \
-            --prefix="$SYSROOT" \
-            CC="$TOOLCHAIN/bin/mipsel-openwrt-linux-musl-gcc" \
-            AR="$TOOLCHAIN/bin/mipsel-openwrt-linux-musl-gcc-ar" \
-            CFLAGS="-Os -mips32r2 -mtune=24kc -msoft-float" \
-            LDFLAGS="-L$TOOLCHAIN/lib" \
-            --disable-openssl \
-            --disable-samples \
-            --disable-shared \
-            --enable-static 2>&1 | tee ../libevent2.log
-          make -j$(nproc) 2>&1 | tee -a ../libevent2.log
-          make install 2>&1 | tee -a ../libevent2.log
-          cd ..
-          find staging_dir -name "event2" -type d 2>/dev/null | head -5 \
-            && echo "libevent2 headers found in staging_dir" \
-            || { echo "ERROR: libevent2 headers not found in staging_dir"; exit 1; }
-
           make package/feeds/packages/pcre2/compile V=s 2>&1 | tee pcre2.log
 
           # OpenSSL must be staged before net-snmp so --with-openssl finds it
@@ -310,23 +265,12 @@ jobs:
           find staging_dir -name "libnetsnmp*.so*" -delete
           echo "Shared libnetsnmp removed — zabbix will link statically"
 
-          # The unbound package (net-snmp dep) builds libevent2 via the SDK
-          # package system with shared libs enabled, overriding our static-only
-          # manual build. Remove the .so files so zabbix links libevent statically.
-          find staging_dir -name "libevent*.so*" -delete
-          find staging_dir -name "libevent*.la" -delete
-          echo "Shared libevent removed — zabbix will link statically"
-
       # -----------------------------------------------------------------------
       # 11. Build the package
       # -----------------------------------------------------------------------
       - name: Build zabbix-proxy-openssl
         working-directory: openwrt-sdk
         run: |
-          # Belt-and-suspenders: purge shared libevent one final time before
-          # zabbix links, in case the SDK's dep resolver re-staged them.
-          find staging_dir -name "libevent*.so*" -delete
-          find staging_dir -name "libevent*.la" -delete
           make package/feeds/packages/zabbix/compile V=s 2>&1 | tee build.log
           echo "=== Build complete ==="
 
@@ -384,6 +328,8 @@ jobs:
           path: |
             openwrt-sdk/bin/packages/mipsel_24kc/packages/zabbix-proxy-*.ipk
             openwrt-sdk/bin/packages/mipsel_24kc/packages/fping_*.ipk
+            openwrt-sdk/bin/packages/mipsel_24kc/base/libevent2-7_*.ipk
+            openwrt-sdk/bin/packages/mipsel_24kc/base/libevent2-pthreads7_*.ipk
           retention-days: 30
 
       - name: Upload build logs
@@ -394,7 +340,6 @@ jobs:
           path: |
             openwrt-sdk/build.log
             openwrt-sdk/sqlite3.log
-            openwrt-sdk/libevent2.log
             openwrt-sdk/pcre2.log
             openwrt-sdk/netsnmp.log
           retention-days: 7
