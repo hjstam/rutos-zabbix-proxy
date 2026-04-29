@@ -5,9 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       zabbix_version:
-        description: 'Zabbix version to build (leave empty for Makefile default)'
+        description: 'Zabbix version to build'
         required: false
-        default: ''
+        default: '6.0.45'
   push:
     branches:
       - main
@@ -125,11 +125,10 @@ jobs:
             echo "Downloaded: $patch"
           done
 
-          if [ -n "${{ inputs.zabbix_version }}" ]; then
-            sed -i "s/PKG_VERSION:=.*/PKG_VERSION:=${{ inputs.zabbix_version }}/" "$MAKEFILE"
-            sed -i "s/PKG_HASH:=.*/PKG_HASH:=skip/" "$MAKEFILE"
-            echo "Overriding Zabbix version to ${{ inputs.zabbix_version }}"
-          fi
+          ZABBIX_VERSION="${{ inputs.zabbix_version || '6.0.45' }}"
+          sed -i "s/PKG_VERSION:=.*/PKG_VERSION:=${ZABBIX_VERSION}/" "$MAKEFILE"
+          sed -i "s/PKG_HASH:=.*/PKG_HASH:=skip/" "$MAKEFILE"
+          echo "Building Zabbix version: ${ZABBIX_VERSION}"
 
           echo "=== Before patches ==="
           grep -n "snmp\|DEFAULT_VARIANT\|libnetsnmp" "$MAKEFILE" || true
