@@ -215,10 +215,18 @@ jobs:
             'CONFIG_PACKAGE_libnetsnmp=y' \
             'CONFIG_PACKAGE_libpcre2=y' \
             'CONFIG_PACKAGE_zlib=y' \
+            '# CONFIG_PACKAGE_zabbix-agentd is not set' \
+            '# CONFIG_PACKAGE_zabbix-agentd-openssl is not set' \
+            '# CONFIG_PACKAGE_zabbix-get is not set' \
+            '# CONFIG_PACKAGE_zabbix-get-openssl is not set' \
             '# CONFIG_PACKAGE_zabbix-proxy is not set' \
+            '# CONFIG_PACKAGE_zabbix-sender is not set' \
+            '# CONFIG_PACKAGE_zabbix-sender-openssl is not set' \
             '# CONFIG_PACKAGE_zabbix-server is not set' \
             '# CONFIG_PACKAGE_zabbix-server-openssl is not set' \
-            '# CONFIG_PACKAGE_zabbix-agentd is not set' \
+            '# CONFIG_PACKAGE_zabbix-frontend-php is not set' \
+            '# CONFIG_PACKAGE_zabbix-extra-frontend is not set' \
+            '# CONFIG_PACKAGE_zabbix-java-gateway is not set' \
             > .config
           make defconfig
           echo "=== Zabbix config after defconfig ==="
