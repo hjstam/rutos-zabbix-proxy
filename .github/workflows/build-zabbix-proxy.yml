@@ -57,9 +57,28 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install libsqlite3
           ./scripts/feeds install libnetsnmp
-          ./scripts/feeds install libpcre2
+          ./scripts/feeds install -f libpcre2
           ./scripts/feeds install fping
           ./scripts/feeds install zabbix
+
+          # Verify pcre2 was symlinked; fall back to a direct link if not.
+          # ./scripts/feeds install silently does nothing when the package name
+          # isn't found in the index, leaving package/feeds/packages/pcre2 absent.
+          if [ ! -d "package/feeds/packages/pcre2" ]; then
+            echo "=== pcre2 not found via feeds install, searching feeds ==="
+            ./scripts/feeds search pcre2 || true
+            if [ -d "feeds/packages/libs/pcre2" ]; then
+              mkdir -p package/feeds/packages
+              ln -sf "$(pwd)/feeds/packages/libs/pcre2" package/feeds/packages/pcre2
+              echo "Manually linked feeds/packages/libs/pcre2 -> package/feeds/packages/pcre2"
+            else
+              echo "ERROR: pcre2 not found in feeds/packages/libs/pcre2 either"
+              find feeds -maxdepth 4 -name "Makefile" | xargs grep -l "libpcre2" 2>/dev/null | head -5 || true
+              exit 1
+            fi
+          fi
+          echo "=== pcre2 feed symlink ==="
+          ls -la package/feeds/packages/pcre2
 
       # -----------------------------------------------------------------------
       # 5. Patch net-snmp Makefile to enable OpenSSL
