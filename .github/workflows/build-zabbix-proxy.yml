@@ -38,14 +38,15 @@ jobs:
             libncurses5-dev libssl-dev python3 rsync unzip wget zlib1g-dev
 
       # -----------------------------------------------------------------------
-      # 3. Download the OpenWrt 21.02.7 SDK for ramips/mt7621
-      #    (same GCC 8.4.0 + musl toolchain as RutOS 7.x, pre-built)
+      # 3. Download the OpenWrt 23.05.5 SDK for ramips/mt7621
+      #    RutOS 7.x ships OpenSSL 3.0.x; the 21.02 SDK only has 1.1.x.
+      #    23.05 ships GCC 12.3.0 + musl + OpenSSL 3.x, matching the router.
       # -----------------------------------------------------------------------
       - name: Download OpenWrt SDK
         run: |
-          wget -q https://downloads.openwrt.org/releases/21.02.7/targets/ramips/mt7621/openwrt-sdk-21.02.7-ramips-mt7621_gcc-8.4.0_musl.Linux-x86_64.tar.xz
-          tar -xf openwrt-sdk-21.02.7-ramips-mt7621_gcc-8.4.0_musl.Linux-x86_64.tar.xz
-          mv openwrt-sdk-21.02.7-ramips-mt7621_gcc-8.4.0_musl.Linux-x86_64 openwrt-sdk
+          wget -q https://downloads.openwrt.org/releases/23.05.5/targets/ramips/mt7621/openwrt-sdk-23.05.5-ramips-mt7621_gcc-12.3.0_musl.Linux-x86_64.tar.xz
+          tar -xf openwrt-sdk-23.05.5-ramips-mt7621_gcc-12.3.0_musl.Linux-x86_64.tar.xz
+          mv openwrt-sdk-23.05.5-ramips-mt7621_gcc-12.3.0_musl.Linux-x86_64 openwrt-sdk
 
       # -----------------------------------------------------------------------
       # 4. Update and install feeds
@@ -61,31 +62,16 @@ jobs:
           ./scripts/feeds install zabbix
 
       # -----------------------------------------------------------------------
-      # 5. Replace net-snmp Makefile with openwrt-23.05 version (5.9.1)
-      #    The 21.02 feed has 5.8 (libnetsnmp.so.35) but RutOS ships 5.9.1
-      #    (libnetsnmp.so.40), so we must compile against the matching version.
+      # 5. Patch net-snmp Makefile to enable OpenSSL
+      #    The 23.05 SDK feed has net-snmp 5.9.x matching RutOS, but the
+      #    default build uses --without-openssl. We need OpenSSL so SHA-2
+      #    USM auth OIDs (usmHMAC384SHA512AuthProtocol etc.) are compiled
+      #    into libnetsnmp — without this Zabbix links against symbols the
+      #    library doesn't define.
       # -----------------------------------------------------------------------
       - name: Replace net-snmp Makefile with openwrt-23.05 version
         working-directory: openwrt-sdk
         run: |
-          wget -q \
-            "https://raw.githubusercontent.com/openwrt/packages/openwrt-23.05/net/net-snmp/Makefile" \
-            -O feeds/packages/net/net-snmp/Makefile
-
-          # Replace patches too: 21.02 patches target 5.8 and fail against 5.9.1
-          PATCHES=$(curl -sf \
-            "https://api.github.com/repos/openwrt/packages/contents/net/net-snmp/patches?ref=openwrt-23.05" \
-            | python3 -c "import sys,json; [print(f['name']) for f in json.load(sys.stdin)]")
-          echo "Patches from openwrt-23.05: $PATCHES"
-          mkdir -p feeds/packages/net/net-snmp/patches
-          rm -f feeds/packages/net/net-snmp/patches/*
-          for patch in $PATCHES; do
-            wget -q \
-              "https://raw.githubusercontent.com/openwrt/packages/openwrt-23.05/net/net-snmp/patches/$patch" \
-              -O "feeds/packages/net/net-snmp/patches/$patch"
-            echo "Downloaded: $patch"
-          done
-
           # Enable OpenSSL so SHA-2 USM auth OIDs (usmHMAC384SHA512AuthProtocol
           # etc.) are compiled into libnetsnmp.a — without this Zabbix links
           # against symbols the library doesn't define.
