@@ -125,6 +125,10 @@ jobs:
             echo "Downloaded: $patch"
           done
 
+          # 110-reproducible-builds.patch targets a hunk in misc.c that moved
+          # in 6.0.45 — drop it (it only affects embedded build timestamps).
+          rm -f feeds/packages/admin/zabbix/patches/110-reproducible-builds.patch
+
           ZABBIX_VERSION="${{ inputs.zabbix_version || '6.0.45' }}"
           sed -i "s/PKG_VERSION:=.*/PKG_VERSION:=${ZABBIX_VERSION}/" "$MAKEFILE"
           sed -i "s/PKG_HASH:=.*/PKG_HASH:=skip/" "$MAKEFILE"
