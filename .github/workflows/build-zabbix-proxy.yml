@@ -288,7 +288,7 @@ jobs:
       - name: Build zabbix-proxy-openssl
         working-directory: openwrt-sdk
         run: |
-          make package/feeds/packages/zabbix/openssl/compile V=s 2>&1 | tee build.log
+          make package/feeds/packages/zabbix/compile V=s 2>&1 | tee build.log
           echo "=== Build complete ==="
 
       # -----------------------------------------------------------------------
