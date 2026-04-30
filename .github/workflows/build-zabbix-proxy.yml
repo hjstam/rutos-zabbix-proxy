@@ -137,11 +137,34 @@ jobs:
           echo "=== Before patches ==="
           grep -n "snmp\|DEFAULT_VARIANT\|libnetsnmp" "$MAKEFILE" || true
 
-          # Add SNMP configure flag (before --with-libevent)
-          sed -i 's/--with-libevent/--with-net-snmp="$(STAGING_DIR)\/usr\/bin\/net-snmp-config" \\\n\t--with-libevent/' "$MAKEFILE"
-
-          # Add libnetsnmp to proxy Default DEPENDS
+          # Add libnetsnmp to proxy DEPENDS (harmless for disabled variants)
           sed -i 's/+ZABBIX_SQLITE:libsqlite3 \\/+ZABBIX_SQLITE:libsqlite3 \\\n    +libnetsnmp \\/' "$MAKEFILE"
+
+          # Add SNMP configure flag for the openssl variant ONLY.
+          # libnetsnmp.a is compiled with OpenSSL; adding --with-net-snmp to
+          # nossl/gnutls variants causes undefined EVP_* symbols at link time.
+          python3 << 'PYEOF'
+          import re
+          with open('feeds/packages/admin/zabbix/Makefile', 'r') as f:
+              content = f.read()
+
+          snmp_conditional = (
+              'ifeq ($(BUILD_VARIANT),openssl)\n'
+              'CONFIGURE_ARGS += --with-net-snmp="$(STAGING_DIR)/usr/bin/net-snmp-config"\n'
+              'endif\n\n'
+          )
+
+          content = re.sub(
+              r'(\$\(eval \$\(call BuildPackage)',
+              snmp_conditional + r'\1',
+              content,
+              count=1
+          )
+
+          with open('feeds/packages/admin/zabbix/Makefile', 'w') as f:
+              f.write(content)
+          print("Added conditional --with-net-snmp for openssl variant only")
+          PYEOF
 
 
           # Remove DEFAULT_VARIANT from nossl variants so defconfig doesn't
