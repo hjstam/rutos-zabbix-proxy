@@ -137,16 +137,44 @@ jobs:
           echo "=== Before patches ==="
           grep -n "snmp\|DEFAULT_VARIANT\|libnetsnmp" "$MAKEFILE" || true
 
-          # Add SNMP configure flag (before --with-libevent)
-          sed -i 's/--with-libevent/--with-net-snmp="$(STAGING_DIR)\/usr\/bin\/net-snmp-config" \\\n\t--with-libevent/' "$MAKEFILE"
-
-          # Add libnetsnmp to proxy Default DEPENDS
+          # Add libnetsnmp to proxy DEPENDS (harmless for disabled variants)
           sed -i 's/+ZABBIX_SQLITE:libsqlite3 \\/+ZABBIX_SQLITE:libsqlite3 \\\n    +libnetsnmp \\/' "$MAKEFILE"
+
+          # Add SNMP configure flag for the openssl variant ONLY.
+          # libnetsnmp.a is compiled with OpenSSL; adding --with-net-snmp to
+          # nossl/gnutls variants causes undefined EVP_* symbols at link time.
+          python3 << 'PYEOF'
+          import re
+          with open('feeds/packages/admin/zabbix/Makefile', 'r') as f:
+              content = f.read()
+
+          snmp_conditional = (
+              'ifeq ($(BUILD_VARIANT),openssl)\n'
+              'CONFIGURE_ARGS += --with-net-snmp="$(STAGING_DIR)/usr/bin/net-snmp-config"\n'
+              'endif\n\n'
+          )
+
+          content = re.sub(
+              r'(\$\(eval \$\(call BuildPackage)',
+              snmp_conditional + r'\1',
+              content,
+              count=1
+          )
+
+          with open('feeds/packages/admin/zabbix/Makefile', 'w') as f:
+              f.write(content)
+          print("Added conditional --with-net-snmp for openssl variant only")
+          PYEOF
 
 
           # Remove DEFAULT_VARIANT from nossl variants so defconfig doesn't
           # auto-enable them alongside the openssl variant we explicitly select
           sed -i '/VARIANT:=nossl/{n; /DEFAULT_VARIANT:=1/d}' "$MAKEFILE"
+
+          # The openwrt-23.05 Makefile sets ac_cv_header_sys_sysinfo_h=no for
+          # cross-compilation, but musl on mipsel does have sys/sysinfo.h and
+          # Zabbix's memory.c uses struct sysinfo unconditionally — flip to yes.
+          sed -i 's/ac_cv_header_sys_sysinfo_h=no/ac_cv_header_sys_sysinfo_h=yes/' "$MAKEFILE"
 
           echo "=== After patches ==="
           grep -n "snmp\|DEFAULT_VARIANT\|libnetsnmp" "$MAKEFILE" || true
@@ -217,13 +245,18 @@ jobs:
             'CONFIG_PACKAGE_zlib=y' \
             '# CONFIG_PACKAGE_zabbix-agentd is not set' \
             '# CONFIG_PACKAGE_zabbix-agentd-openssl is not set' \
+            '# CONFIG_PACKAGE_zabbix-agentd-gnutls is not set' \
             '# CONFIG_PACKAGE_zabbix-get is not set' \
             '# CONFIG_PACKAGE_zabbix-get-openssl is not set' \
+            '# CONFIG_PACKAGE_zabbix-get-gnutls is not set' \
             '# CONFIG_PACKAGE_zabbix-proxy is not set' \
+            '# CONFIG_PACKAGE_zabbix-proxy-gnutls is not set' \
             '# CONFIG_PACKAGE_zabbix-sender is not set' \
             '# CONFIG_PACKAGE_zabbix-sender-openssl is not set' \
+            '# CONFIG_PACKAGE_zabbix-sender-gnutls is not set' \
             '# CONFIG_PACKAGE_zabbix-server is not set' \
             '# CONFIG_PACKAGE_zabbix-server-openssl is not set' \
+            '# CONFIG_PACKAGE_zabbix-server-gnutls is not set' \
             '# CONFIG_PACKAGE_zabbix-frontend-php is not set' \
             '# CONFIG_PACKAGE_zabbix-extra-frontend is not set' \
             '# CONFIG_PACKAGE_zabbix-java-gateway is not set' \
