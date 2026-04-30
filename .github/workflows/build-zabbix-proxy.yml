@@ -148,6 +148,11 @@ jobs:
           # auto-enable them alongside the openssl variant we explicitly select
           sed -i '/VARIANT:=nossl/{n; /DEFAULT_VARIANT:=1/d}' "$MAKEFILE"
 
+          # The openwrt-23.05 Makefile sets ac_cv_header_sys_sysinfo_h=no for
+          # cross-compilation, but musl on mipsel does have sys/sysinfo.h and
+          # Zabbix's memory.c uses struct sysinfo unconditionally — flip to yes.
+          sed -i 's/ac_cv_header_sys_sysinfo_h=no/ac_cv_header_sys_sysinfo_h=yes/' "$MAKEFILE"
+
           echo "=== After patches ==="
           grep -n "snmp\|DEFAULT_VARIANT\|libnetsnmp" "$MAKEFILE" || true
 
@@ -283,7 +288,7 @@ jobs:
       - name: Build zabbix-proxy-openssl
         working-directory: openwrt-sdk
         run: |
-          make package/feeds/packages/zabbix/compile V=s 2>&1 | tee build.log
+          make package/feeds/packages/zabbix/openssl/compile V=s 2>&1 | tee build.log
           echo "=== Build complete ==="
 
       # -----------------------------------------------------------------------
