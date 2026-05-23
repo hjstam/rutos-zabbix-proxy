@@ -211,6 +211,13 @@ jobs:
             'CONFIG_ZABBIX_SQLITE=y' \
             'CONFIG_ZABBIX_NETSNMP=y' \
             'CONFIG_ZABBIX_OPENSSL=y' \
+            '# CONFIG_ZABBIX_LDAP is not set' \
+            '# CONFIG_ZABBIX_CURL is not set' \
+            '# CONFIG_ZABBIX_CURL_GNUTLS is not set' \
+            '# CONFIG_ZABBIX_GNUTLS is not set' \
+            '# CONFIG_ZABBIX_NOSSL is not set' \
+            '# CONFIG_ZABBIX_MYSQL is not set' \
+            '# CONFIG_ZABBIX_POSTGRESQL is not set' \
             'CONFIG_PACKAGE_zabbix-proxy=m' \
             'CONFIG_PACKAGE_libsqlite3=y' \
             'CONFIG_PACKAGE_libnetsnmp=y' \
