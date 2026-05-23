@@ -148,6 +148,13 @@ jobs:
           # not detect it — add the cached result before the first use.
           sed -i '/^MAKE_FLAGS += ARCH="linux"/i CONFIGURE_VARS += ac_cv_header_sys_sysinfo_h=yes' "$MAKEFILE"
 
+          # --enable-year2038 is a glibc opt-in for 64-bit time_t; on musl
+          # time_t is already 64-bit by default.  Keeping the flag causes the
+          # cross-compiler's fortify stdio.h to fall through to the host's
+          # /usr/include/stdio.h which then needs bits/libc-header-start.h —
+          # a file that lives only at the multiarch path on Ubuntu 24.04.
+          sed -i 's/ --enable-year2038//' "$MAKEFILE"
+
           echo "=== After patches ==="
           grep -n "netsnmp\|NETSNMP\|sysinfo" "$MAKEFILE" || true
 
