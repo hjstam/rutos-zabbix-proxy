@@ -144,6 +144,16 @@ jobs:
           # only provides libnetsnmp (which step 5 patches to enable OpenSSL).
           sed -i 's/+ZABBIX_NETSNMP:libnetsnmp-ssl/+ZABBIX_NETSNMP:libnetsnmp/g' "$MAKEFILE"
 
+          # Without an explicit path, --with-sqlite3 lets configure find the
+          # HOST's /usr/include/sqlite3.h (Ubuntu has libsqlite3-dev installed),
+          # adding -I/usr/include to zbxdb/ compilation.  That puts the host's
+          # glibc stdio.h in the include path, which breaks cross-compilation.
+          # Point explicitly at the cross-target's staged SQLite3 instead.
+          sed -i 's|--with-sqlite3,--with-sqlite3="no")|--with-sqlite3="$(STAGING_DIR)/usr",--with-sqlite3="no")|' "$MAKEFILE"
+          grep -q '"$(STAGING_DIR)/usr"' "$MAKEFILE" \
+            && echo "sqlite3 path patched" \
+            || echo "WARNING: sqlite3 path patch may have failed"
+
           # musl on mipsel has sys/sysinfo.h but autoconf cross-compilation may
           # not detect it — add the cached result before the first use.
           sed -i '/^MAKE_FLAGS += ARCH="linux"/i CONFIGURE_VARS += ac_cv_header_sys_sysinfo_h=yes' "$MAKEFILE"
