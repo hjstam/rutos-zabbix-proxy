@@ -7,7 +7,7 @@ on:
       zabbix_version:
         description: 'Zabbix version to build'
         required: false
-        default: '6.0.45'
+        default: '7.0.26'
   push:
     branches:
       - main
@@ -99,8 +99,7 @@ jobs:
 
 
       # -----------------------------------------------------------------------
-      # 7. Fetch the openwrt-23.05 branch Makefile (Zabbix 6.x, has native
-      #    SQLite3 support) and patch it for SNMP support
+      # 7. Fetch the openwrt-24.10 branch Makefile (Zabbix 7.x) and patch it
       # -----------------------------------------------------------------------
       - name: Patch Zabbix Makefile for SNMP
         working-directory: openwrt-sdk
@@ -108,84 +107,59 @@ jobs:
           MAKEFILE="feeds/packages/admin/zabbix/Makefile"
 
           wget -q \
-            "https://raw.githubusercontent.com/openwrt/packages/openwrt-23.05/admin/zabbix/Makefile" \
+            "https://raw.githubusercontent.com/openwrt/packages/openwrt-24.10/admin/zabbix/Makefile" \
             -O "$MAKEFILE"
 
-          # Replace patches too: 21.02 patches target Zabbix 5.x and fail against 6.x
+          # The 7.x Makefile sources Config*.in files for kconfig symbols
+          # (CONFIG_ZABBIX_NETSNMP, CONFIG_ZABBIX_SQLITE, etc.) — fetch them too.
+          for cfgfile in Config.in Config-db.in Config-build.in; do
+            wget -q \
+              "https://raw.githubusercontent.com/openwrt/packages/openwrt-24.10/admin/zabbix/$cfgfile" \
+              -O "feeds/packages/admin/zabbix/$cfgfile"
+          done
+
+          # Replace patches: fetch from openwrt-24.10
           ZABBIX_PATCHES=$(curl -sf \
-            "https://api.github.com/repos/openwrt/packages/contents/admin/zabbix/patches?ref=openwrt-23.05" \
+            "https://api.github.com/repos/openwrt/packages/contents/admin/zabbix/patches?ref=openwrt-24.10" \
             | python3 -c "import sys,json; [print(f['name']) for f in json.load(sys.stdin)]")
-          echo "Zabbix patches from openwrt-23.05: $ZABBIX_PATCHES"
+          echo "Zabbix patches from openwrt-24.10: $ZABBIX_PATCHES"
           mkdir -p feeds/packages/admin/zabbix/patches
           rm -f feeds/packages/admin/zabbix/patches/*
           for patch in $ZABBIX_PATCHES; do
             wget -q \
-              "https://raw.githubusercontent.com/openwrt/packages/openwrt-23.05/admin/zabbix/patches/$patch" \
+              "https://raw.githubusercontent.com/openwrt/packages/openwrt-24.10/admin/zabbix/patches/$patch" \
               -O "feeds/packages/admin/zabbix/patches/$patch"
             echo "Downloaded: $patch"
           done
 
-          # 110-reproducible-builds.patch targets a hunk in misc.c that moved
-          # in 6.0.45 — drop it (it only affects embedded build timestamps).
+          # 110-reproducible-builds.patch only affects embedded build timestamps — drop it.
           rm -f feeds/packages/admin/zabbix/patches/110-reproducible-builds.patch
 
-          ZABBIX_VERSION="${{ inputs.zabbix_version || '6.0.45' }}"
+          ZABBIX_VERSION="${{ inputs.zabbix_version || '7.0.26' }}"
           sed -i "s/PKG_VERSION:=.*/PKG_VERSION:=${ZABBIX_VERSION}/" "$MAKEFILE"
           sed -i "s/PKG_HASH:=.*/PKG_HASH:=skip/" "$MAKEFILE"
           echo "Building Zabbix version: ${ZABBIX_VERSION}"
 
-          echo "=== Before patches ==="
-          grep -n "snmp\|DEFAULT_VARIANT\|libnetsnmp" "$MAKEFILE" || true
+          # The 24.10 Makefile references libnetsnmp-ssl, but the 23.05 SDK feed
+          # only provides libnetsnmp (which step 5 patches to enable OpenSSL).
+          sed -i 's/+ZABBIX_NETSNMP:libnetsnmp-ssl/+ZABBIX_NETSNMP:libnetsnmp/g' "$MAKEFILE"
 
-          # Add libnetsnmp to proxy DEPENDS (harmless for disabled variants)
-          sed -i 's/+ZABBIX_SQLITE:libsqlite3 \\/+ZABBIX_SQLITE:libsqlite3 \\\n    +libnetsnmp \\/' "$MAKEFILE"
-
-          # Add SNMP configure flag for the openssl variant ONLY.
-          # libnetsnmp.a is compiled with OpenSSL; adding --with-net-snmp to
-          # nossl/gnutls variants causes undefined EVP_* symbols at link time.
-          python3 << 'PYEOF'
-          import re
-          with open('feeds/packages/admin/zabbix/Makefile', 'r') as f:
-              content = f.read()
-
-          snmp_conditional = (
-              'ifeq ($(BUILD_VARIANT),openssl)\n'
-              'CONFIGURE_ARGS += --with-net-snmp="$(STAGING_DIR)/usr/bin/net-snmp-config"\n'
-              'endif\n\n'
-          )
-
-          content = re.sub(
-              r'(\$\(eval \$\(call BuildPackage)',
-              snmp_conditional + r'\1',
-              content,
-              count=1
-          )
-
-          with open('feeds/packages/admin/zabbix/Makefile', 'w') as f:
-              f.write(content)
-          print("Added conditional --with-net-snmp for openssl variant only")
-          PYEOF
-
-
-          # Remove DEFAULT_VARIANT from nossl variants so defconfig doesn't
-          # auto-enable them alongside the openssl variant we explicitly select
-          sed -i '/VARIANT:=nossl/{n; /DEFAULT_VARIANT:=1/d}' "$MAKEFILE"
-
-          # The openwrt-23.05 Makefile sets ac_cv_header_sys_sysinfo_h=no for
-          # cross-compilation, but musl on mipsel does have sys/sysinfo.h and
-          # Zabbix's memory.c uses struct sysinfo unconditionally — flip to yes.
-          sed -i 's/ac_cv_header_sys_sysinfo_h=no/ac_cv_header_sys_sysinfo_h=yes/' "$MAKEFILE"
+          # musl on mipsel has sys/sysinfo.h but autoconf cross-compilation may
+          # not detect it — add the cached result before the first use.
+          sed -i '/^MAKE_FLAGS += ARCH="linux"/i CONFIGURE_VARS += ac_cv_header_sys_sysinfo_h=yes' "$MAKEFILE"
 
           echo "=== After patches ==="
-          grep -n "snmp\|DEFAULT_VARIANT\|libnetsnmp" "$MAKEFILE" || true
+          grep -n "netsnmp\|NETSNMP\|sysinfo" "$MAKEFILE" || true
 
-          # Validate patches applied correctly
+          # Validate
           grep -q -- "--with-net-snmp" "$MAKEFILE" \
-            || { echo "ERROR: --with-net-snmp not found"; exit 1; }
+            || { echo "ERROR: --with-net-snmp not found in Makefile"; exit 1; }
           grep -q "libnetsnmp" "$MAKEFILE" \
             || { echo "ERROR: libnetsnmp not found in DEPENDS"; exit 1; }
-          ! grep -q -- "DEFAULT_VARIANT" "$MAKEFILE" \
-            || { echo "ERROR: DEFAULT_VARIANT still present"; exit 1; }
+          ! grep -q "libnetsnmp-ssl" "$MAKEFILE" \
+            || { echo "ERROR: libnetsnmp-ssl still present in Makefile"; exit 1; }
+          grep -q "ac_cv_header_sys_sysinfo_h=yes" "$MAKEFILE" \
+            || { echo "WARNING: sysinfo fix not applied — build may fail on mipsel"; }
 
       # -----------------------------------------------------------------------
       # 8. Add init.d script to the Zabbix package
@@ -201,24 +175,21 @@ jobs:
           cp "$GITHUB_WORKSPACE/zabbix_proxy.init" "$FILES_DIR/zabbix_proxy.init"
 
           python3 << 'PYEOF'
-          import re
-
           with open('feeds/packages/admin/zabbix/Makefile', 'r') as f:
               content = f.read()
 
-          init_lines = (
-              '\n\t$(INSTALL_DIR) $(1)/etc/init.d\n'
-              '\t$(INSTALL_BIN) ./files/zabbix_proxy.init $(1)/etc/init.d/zabbix_proxy\n'
-          )
-
           if 'zabbix_proxy.init' not in content:
-              content = re.sub(
-                  r'(define Package/zabbix-proxy/install.*?)(endef)',
-                  lambda m: m.group(1) + init_lines + m.group(2),
-                  content,
-                  flags=re.DOTALL
+              # The 7.x Makefile defines Package/zabbix-proxy/install via eval/macro.
+              # Appending a new define at EOF overrides the macro-generated one in GNU make.
+              init_override = (
+                  '\ndefine Package/zabbix-proxy/install\n'
+                  '\t$(INSTALL_DIR) $(1)/etc/zabbix_proxy.conf.d\n'
+                  '\t$(call Package/zabbix/install/sbin,$(1),proxy)\n'
+                  '\t$(call Package/zabbix/install/init.d,$(1),proxy)\n'
+                  'endef\n'
               )
-              print("Patched: init script added to install section")
+              content = content + init_override
+              print("Patched: init script override appended")
           else:
               print("Init script already in Makefile, skipping patch")
 
@@ -226,8 +197,8 @@ jobs:
               f.write(content)
           PYEOF
 
-          echo "=== Final install section ==="
-          grep -A15 "Package/zabbix-proxy/install" "$MAKEFILE" || true
+          echo "=== Init override ==="
+          tail -10 "$MAKEFILE"
 
       # -----------------------------------------------------------------------
       # 9. Configure the build — must run before compiling dependencies so
@@ -238,28 +209,23 @@ jobs:
         run: |
           printf '%s\n' \
             'CONFIG_ZABBIX_SQLITE=y' \
-            'CONFIG_PACKAGE_zabbix-proxy-openssl=m' \
+            'CONFIG_ZABBIX_NETSNMP=y' \
+            'CONFIG_ZABBIX_OPENSSL=y' \
+            'CONFIG_PACKAGE_zabbix-proxy=m' \
             'CONFIG_PACKAGE_libsqlite3=y' \
             'CONFIG_PACKAGE_libnetsnmp=y' \
             'CONFIG_PACKAGE_libpcre2=y' \
             'CONFIG_PACKAGE_zlib=y' \
             '# CONFIG_PACKAGE_zabbix-agentd is not set' \
-            '# CONFIG_PACKAGE_zabbix-agentd-openssl is not set' \
-            '# CONFIG_PACKAGE_zabbix-agentd-gnutls is not set' \
+            '# CONFIG_PACKAGE_zabbix-agentd-basic is not set' \
             '# CONFIG_PACKAGE_zabbix-get is not set' \
-            '# CONFIG_PACKAGE_zabbix-get-openssl is not set' \
-            '# CONFIG_PACKAGE_zabbix-get-gnutls is not set' \
-            '# CONFIG_PACKAGE_zabbix-proxy is not set' \
-            '# CONFIG_PACKAGE_zabbix-proxy-gnutls is not set' \
             '# CONFIG_PACKAGE_zabbix-sender is not set' \
-            '# CONFIG_PACKAGE_zabbix-sender-openssl is not set' \
-            '# CONFIG_PACKAGE_zabbix-sender-gnutls is not set' \
             '# CONFIG_PACKAGE_zabbix-server is not set' \
-            '# CONFIG_PACKAGE_zabbix-server-openssl is not set' \
-            '# CONFIG_PACKAGE_zabbix-server-gnutls is not set' \
-            '# CONFIG_PACKAGE_zabbix-frontend-php is not set' \
-            '# CONFIG_PACKAGE_zabbix-extra-frontend is not set' \
-            '# CONFIG_PACKAGE_zabbix-java-gateway is not set' \
+            '# CONFIG_PACKAGE_zabbix-proxy-basic-sqlite is not set' \
+            '# CONFIG_PACKAGE_zabbix-extra-mac80211 is not set' \
+            '# CONFIG_PACKAGE_zabbix-extra-network is not set' \
+            '# CONFIG_PACKAGE_zabbix-extra-wifi is not set' \
+            '# CONFIG_PACKAGE_zabbix-frontend-server is not set' \
             > .config
           make defconfig
           echo "=== Zabbix config after defconfig ==="
@@ -366,7 +332,7 @@ jobs:
         with:
           name: zabbix-proxy-sqlite3-snmp-mipsel_24kc
           path: |
-            openwrt-sdk/bin/packages/mipsel_24kc/packages/zabbix-proxy-*.ipk
+            openwrt-sdk/bin/packages/mipsel_24kc/packages/zabbix-proxy*.ipk
             openwrt-sdk/bin/packages/mipsel_24kc/packages/fping_*.ipk
             openwrt-sdk/bin/packages/mipsel_24kc/base/libevent2*.ipk
           retention-days: 30
