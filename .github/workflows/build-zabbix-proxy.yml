@@ -103,32 +103,40 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Patch Zabbix Makefile for SNMP
         working-directory: openwrt-sdk
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           MAKEFILE="feeds/packages/admin/zabbix/Makefile"
+          # Use authenticated curl — unauthenticated raw.githubusercontent.com
+          # requests from Actions runners are rate-limited to 60/hr and return
+          # HTTP 429, which wget reports as exit code 8 with no visible error.
+          # A GITHUB_TOKEN raises the limit to 5,000/hr.
+          GH_RAW_ARGS=(-fsSL -H "Authorization: Bearer $GH_TOKEN")
+          GH_API_ARGS=(-fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
 
-          wget -q \
+          curl "${GH_RAW_ARGS[@]}" \
             "https://raw.githubusercontent.com/openwrt/packages/openwrt-24.10/admin/zabbix/Makefile" \
-            -O "$MAKEFILE"
+            -o "$MAKEFILE"
 
-          # The 7.x Makefile sources Config*.in files for kconfig symbols
-          # (CONFIG_ZABBIX_NETSNMP, CONFIG_ZABBIX_SQLITE, etc.) — fetch them too.
-          for cfgfile in Config.in Config-db.in Config-build.in; do
-            wget -q \
-              "https://raw.githubusercontent.com/openwrt/packages/openwrt-24.10/admin/zabbix/$cfgfile" \
-              -O "feeds/packages/admin/zabbix/$cfgfile"
-          done
+          # The 7.x Makefile sources Config.in for kconfig symbols
+          # (CONFIG_ZABBIX_NETSNMP, CONFIG_ZABBIX_SQLITE, etc.) — fetch it too.
+          # Note: openwrt-24.10 only has Config.in; Config-db.in / Config-build.in
+          # do not exist in that branch.
+          curl "${GH_RAW_ARGS[@]}" \
+            "https://raw.githubusercontent.com/openwrt/packages/openwrt-24.10/admin/zabbix/Config.in" \
+            -o "feeds/packages/admin/zabbix/Config.in"
 
           # Replace patches: fetch from openwrt-24.10
-          ZABBIX_PATCHES=$(curl -sf \
+          ZABBIX_PATCHES=$(curl "${GH_API_ARGS[@]}" \
             "https://api.github.com/repos/openwrt/packages/contents/admin/zabbix/patches?ref=openwrt-24.10" \
             | python3 -c "import sys,json; [print(f['name']) for f in json.load(sys.stdin)]")
           echo "Zabbix patches from openwrt-24.10: $ZABBIX_PATCHES"
           mkdir -p feeds/packages/admin/zabbix/patches
           rm -f feeds/packages/admin/zabbix/patches/*
           for patch in $ZABBIX_PATCHES; do
-            wget -q \
+            curl "${GH_RAW_ARGS[@]}" \
               "https://raw.githubusercontent.com/openwrt/packages/openwrt-24.10/admin/zabbix/patches/$patch" \
-              -O "feeds/packages/admin/zabbix/patches/$patch"
+              -o "feeds/packages/admin/zabbix/patches/$patch"
             echo "Downloaded: $patch"
           done
 
@@ -143,6 +151,7 @@ jobs:
           # The 24.10 Makefile references libnetsnmp-ssl, but the 23.05 SDK feed
           # only provides libnetsnmp (which step 5 patches to enable OpenSSL).
           sed -i 's/+ZABBIX_NETSNMP:libnetsnmp-ssl/+ZABBIX_NETSNMP:libnetsnmp/g' "$MAKEFILE"
+          sed -i 's/+libnetsnmp-ssl/+libnetsnmp/g' "$MAKEFILE"
 
           # Without an explicit path, --with-sqlite3 lets configure find the
           # HOST's /usr/include/sqlite3.h (Ubuntu has libsqlite3-dev installed),
@@ -176,7 +185,8 @@ jobs:
           ! grep -q "libnetsnmp-ssl" "$MAKEFILE" \
             || { echo "ERROR: libnetsnmp-ssl still present in Makefile"; exit 1; }
           grep -q "ac_cv_header_sys_sysinfo_h=yes" "$MAKEFILE" \
-            || { echo "WARNING: sysinfo fix not applied — build may fail on mipsel"; }
+            && echo "sysinfo fix applied" \
+            || echo "WARNING: sysinfo fix not applied — build may fail on mipsel"
 
       # -----------------------------------------------------------------------
       # 8. Add init.d script to the Zabbix package
@@ -191,31 +201,56 @@ jobs:
           mkdir -p "$FILES_DIR"
           cp "$GITHUB_WORKSPACE/zabbix_proxy.init" "$FILES_DIR/zabbix_proxy.init"
 
+          # The openwrt-24.10 Makefile uses Package/zabbix-daemon/files to generate
+          # Package/zabbix-proxy/install dynamically via $(eval $(call ...)).  A
+          # top-level define appended at EOF does NOT win over the eval-generated one.
+          #
+          # The correct pattern (same as agentd/server) is:
+          #   1. Define Package/zabbix-proxy/install-extra using $$(1) so the
+          #      destination-dir argument is deferred to install time.
+          #   2. Pass it as arg4 to the daemon/files macro call so it's wired into
+          #      the generated Package/zabbix-proxy/install body.
           python3 << 'PYEOF'
           with open('feeds/packages/admin/zabbix/Makefile', 'r') as f:
               content = f.read()
 
-          if 'zabbix_proxy.init' not in content:
-              # The 7.x Makefile defines Package/zabbix-proxy/install via eval/macro.
-              # Appending a new define at EOF overrides the macro-generated one in GNU make.
-              init_override = (
-                  '\ndefine Package/zabbix-proxy/install\n'
-                  '\t$(INSTALL_DIR) $(1)/etc/zabbix_proxy.conf.d\n'
-                  '\t$(call Package/zabbix/install/sbin,$(1),proxy)\n'
-                  '\t$(call Package/zabbix/install/init.d,$(1),proxy)\n'
+          if 'Package/zabbix-proxy/install-extra' not in content:
+              # Insert just before the server's install-extra to keep ordering tidy
+              proxy_extra = (
+                  'define Package/zabbix-proxy/install-extra\n'
+                  '\t$(call Package/zabbix/install/init.d,$$(1),proxy)\n'
                   'endef\n'
+                  '\n'
               )
-              content = content + init_override
-              print("Patched: init script override appended")
+              content = content.replace(
+                  'define Package/zabbix-server/install-extra',
+                  proxy_extra + 'define Package/zabbix-server/install-extra'
+              )
+              print("Patched: Package/zabbix-proxy/install-extra inserted")
           else:
-              print("Init script already in Makefile, skipping patch")
+              print("Package/zabbix-proxy/install-extra already present, skipping")
+
+          # Wire the install-extra into the daemon/files macro call for proxy
+          old_call = '$(eval $(call Package/zabbix-daemon/files,proxy))'
+          new_call = '$(eval $(call Package/zabbix-daemon/files,proxy,,,$(call Package/zabbix-proxy/install-extra)))'
+          if old_call in content:
+              content = content.replace(old_call, new_call)
+              print("Patched: daemon/files call for proxy now includes install-extra")
+          elif new_call in content:
+              print("daemon/files call already patched, skipping")
+          else:
+              print("WARNING: could not find daemon/files call for proxy")
 
           with open('feeds/packages/admin/zabbix/Makefile', 'w') as f:
               f.write(content)
           PYEOF
 
-          echo "=== Init override ==="
-          tail -10 "$MAKEFILE"
+          echo "=== proxy install-extra ==="
+          grep -A3 "Package/zabbix-proxy/install-extra" "$MAKEFILE" \
+            || echo "WARNING: install-extra not found"
+          echo "=== daemon/files proxy call ==="
+          grep "Package/zabbix-daemon/files,proxy" "$MAKEFILE" \
+            || echo "WARNING: daemon/files call not found"
 
       # -----------------------------------------------------------------------
       # 9. Configure the build — must run before compiling dependencies so
