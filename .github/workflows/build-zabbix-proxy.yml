@@ -218,6 +218,7 @@ jobs:
               # Insert just before the server's install-extra to keep ordering tidy
               proxy_extra = (
                   'define Package/zabbix-proxy/install-extra\n'
+                  '\t$(call Package/zabbix/install/etc,$$(1),proxy)\n'
                   '\t$(call Package/zabbix/install/init.d,$$(1),proxy)\n'
                   'endef\n'
                   '\n'
@@ -371,6 +372,11 @@ jobs:
           cat ./etc/init.d/zabbix_proxy 2>/dev/null \
             && echo "init script confirmed in package" \
             || echo "WARNING: init script not found"
+
+          echo "--- default config file ---"
+          [ -f ./etc/zabbix_proxy.conf ] \
+            && echo "zabbix_proxy.conf confirmed in package" \
+            || echo "WARNING: zabbix_proxy.conf not found in package"
 
           echo "--- SQLite3 and SNMP linkage ---"
           BINARY=$(find . -name "zabbix_proxy" -not -path "*/init.d/*" | head -1)
